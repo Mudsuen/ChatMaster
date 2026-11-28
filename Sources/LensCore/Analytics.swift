@@ -73,6 +73,33 @@ public struct RelationshipStats: Sendable {
     public var topSenders: [ChatCount] = []
 }
 
+public struct PeriodStats: Sendable {
+    public var total = 0
+    public var sentByMe = 0
+    public var activeChats = 0
+    public var contacts = 0
+    public var groups = 0
+    public var firstTs: Int64 = 0
+
+    public init() {}
+}
+
+public struct HeatmapSlotSummary: Sendable {
+    public var weekday: Int  // 0 = Monday ... 6 = Sunday
+    public var hour: Int     // 0 ... 23
+    public var total: Int
+    public var topChats: [ChatCount]
+    public var messages: [LensMessage]
+
+    public init(weekday: Int, hour: Int, total: Int, topChats: [ChatCount], messages: [LensMessage]) {
+        self.weekday = weekday
+        self.hour = hour
+        self.total = total
+        self.topChats = topChats
+        self.messages = messages
+    }
+}
+
 public struct PendingReply: Identifiable, Sendable {
     public var id: String { chat }
     public var chat: String
@@ -106,6 +133,63 @@ extension LensStore {
         o.contacts = cs.filter { $0.kind == .person }.count
         o.groups = cs.filter { $0.kind == .group }.count
         return o
+    }
+
+    /// Aggregated counts for a period (`days == nil` for all time, `1` for today, `7`/`30` for rolling windows).
+    public func periodStats(days: Int?) -> PeriodStats {
+        var s = PeriodStats()
+        let since: Int64
+        if let days {
+            since = LensStore.startOfToday() - Int64(max(0, days - 1)) * 86400
+        } else {
+            since = 0
+        }
+        let f = LensStore.excludeNoise
+        try? reader.query("""
+            SELECT count(*), IFNULL(sum(is_self),0), count(DISTINCT chat)
+            FROM messages WHERE ts >= ? AND \(f)
+            """, [.int(since)]) { r in
+            s.total = Int(r.int(0))
+            s.sentByMe = Int(r.int(1))
+            s.activeChats = Int(r.int(2))
+        }
+        s.firstTs = (try? reader.scalarInt("SELECT IFNULL(min(ts),0) FROM messages WHERE \(f)")) ?? 0
+        let cs = allContacts()
+        s.contacts = cs.filter { $0.kind == .person }.count
+        s.groups = cs.filter { $0.kind == .group }.count
+        return s
+    }
+
+    /// Detailed breakdown for a single weekday (0 = Monday) × hour (0...23) slot in the heatmap.
+    public func heatmapSlot(weekday: Int, hour: Int, days: Int = 365, chatLimit: Int = 8, messageLimit: Int = 80) -> HeatmapSlotSummary {
+        let since = LensStore.startOfToday() - Int64(days) * 86400
+        let sqliteW = ((weekday % 7) + 8) % 7  // Monday=0 -> 1 ... Saturday=5 -> 6, Sunday=6 -> 0
+        let f = LensStore.excludeNoise
+        let cond = "ts >= ? AND \(f) AND CAST(strftime('%w', ts, 'unixepoch', 'localtime') AS INTEGER) = ? AND CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) = ?"
+        let baseParams: [SQLValue] = [.int(since), .int(Int64(sqliteW)), .int(Int64(hour))]
+
+        let total = int("SELECT count(*) FROM messages WHERE \(cond)", baseParams)
+
+        var topChats: [ChatCount] = []
+        try? reader.query("""
+            SELECT chat, count(*), IFNULL(sum(is_self),0)
+            FROM messages WHERE \(cond)
+            GROUP BY chat ORDER BY 2 DESC LIMIT ?
+            """, baseParams + [.int(Int64(chatLimit))]) { r in
+            let c = r.text(0) ?? ""
+            topChats.append(ChatCount(chat: c, display: displayName(c), count: Int(r.int(1)), mine: Int(r.int(2))))
+        }
+
+        var msgs: [LensMessage] = []
+        try? reader.query("""
+            SELECT \(LensStore.cols) FROM messages
+            WHERE \(cond)
+            ORDER BY ts DESC, id DESC LIMIT ?
+            """, baseParams + [.int(Int64(messageLimit))]) { r in
+            msgs.append(LensStore.message(r))
+        }
+
+        return HeatmapSlotSummary(weekday: weekday, hour: hour, total: total, topChats: topChats, messages: msgs)
     }
 
     public func dailyCounts(days: Int = 90) -> [DayCount] {

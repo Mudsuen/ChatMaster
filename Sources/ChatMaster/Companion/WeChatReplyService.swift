@@ -32,6 +32,30 @@ enum WeChatReplyService {
     }
 
     private static var isSending = false
+    private static var lastExternalApp: NSRunningApplication?
+    private static var observer: NSObjectProtocol?
+
+    /// Tracks the last active application outside ChatMaster/WeChat so MenuBar replies can
+    /// return focus cleanly to whatever the user was doing after sending.
+    static func startObservingFrontmostApp() {
+        guard observer == nil else { return }
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier,
+           front.bundleIdentifier != weChatBundleID {
+            lastExternalApp = front
+        }
+        observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let bid = app.bundleIdentifier
+            if bid != Bundle.main.bundleIdentifier && bid != weChatBundleID {
+                MainActor.assumeIsolated { lastExternalApp = app }
+            }
+        }
+    }
 
     /// Picks a reliable search query for `⌘F` in WeChat, preferring remark > WeChat ID > nickname.
     /// Returns `nil` for unnamed group chats (`"群聊 ..."`).
@@ -65,6 +89,15 @@ enum WeChatReplyService {
         let displayName = contact?.display ?? fallbackDisplay
         let prevClipboard = NSPasteboard.general.string(forType: .string)
         let screenOK = CGPreflightScreenCaptureAccess()
+        let weChatWasHidden = app.isHidden
+        let returnApp: NSRunningApplication? = {
+            if let front = NSWorkspace.shared.frontmostApplication,
+               front.bundleIdentifier != Bundle.main.bundleIdentifier,
+               front.bundleIdentifier != weChatBundleID {
+                return front
+            }
+            return lastExternalApp
+        }()
 
         app.activate()
         try? await Task.sleep(for: .milliseconds(180))
@@ -122,9 +155,13 @@ enum WeChatReplyService {
         postKey(kVK_ANSI_V, flags: .maskCommand)
         try? await Task.sleep(for: .milliseconds(120))
         postKey(kVK_Return, flags: useCommandReturn ? .maskCommand : [])
-        try? await Task.sleep(for: .milliseconds(350))
+        try? await Task.sleep(for: .milliseconds(220))
 
         restoreClipboard(prevClipboard)
+        if weChatWasHidden { app.hide() }
+        if let returnApp, !returnApp.isTerminated {
+            returnApp.activate()
+        }
 
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(600))

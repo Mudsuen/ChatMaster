@@ -170,7 +170,7 @@ struct CompactSidebar: View {
 
     private func badge(for s: AppSection) -> Int {
         switch s {
-        case .chats: return model.chats.reduce(0) { $0 + ($1.kind == .person ? $1.unread : 0) }
+        case .chats: return model.chats.reduce(0) { $0 + ($1.kind == .person && !$1.isMuted && !$1.isFolded ? $1.unread : 0) }
         case .recalls: return model.recalledToday
         default: return 0
         }

@@ -69,12 +69,14 @@ enum Prefs {
     static let followOCR = "sidebarFollowOCR"
     static let recallNotify = "recallNotify"
     static let sendWithCommandReturn = "sendWithCommandReturn"
+    static let showMutedChats = "showMutedChats"
     private static let migratedFlag = "migratedFromWeChatLens"
 
     static func register() {
         let defaults: [String: Any] = [
             model: AgyConfig.defaultModel, agyPath: "", sidebar: true, bubble: true, autoAnalyze: true,
             includeOfficial: false, followOCR: true, recallNotify: true, sendWithCommandReturn: false,
+            showMutedChats: false,
         ]
         UserDefaults.standard.register(defaults: defaults)
         migrateLegacyIfNeeded()
@@ -97,6 +99,39 @@ enum Prefs {
 
 @MainActor
 final class AppModel: ObservableObject {
+    enum DashboardPeriod: String, CaseIterable, Hashable {
+        case today, week, month, all
+
+        var title: String {
+            switch self {
+            case .today: return "今日"
+            case .week: return "7 天"
+            case .month: return "30 天"
+            case .all: return "全部"
+            }
+        }
+
+        var days: Int? {
+            switch self {
+            case .today: return 1
+            case .week: return 7
+            case .month: return 30
+            case .all: return nil
+            }
+        }
+    }
+
+    struct DashboardSnapshot {
+        var stats = PeriodStats()
+        var pendingCount = 0
+        var daily: [DayCount] = []
+        var heat: [HeatCell] = []
+        var kinds: [KindCount] = []
+        var top: [ChatCount] = []
+        var period: DashboardPeriod = .today
+        var loadedRevision: Int = -1
+    }
+
     static let shared = AppModel()
 
     @Published var state: LoadState = .starting
@@ -109,6 +144,9 @@ final class AppModel: ObservableObject {
     @Published var menuBarChats: [ChatSummary] = []
     @Published var menuBarUnreadCount = 0
     @Published var localUnread: [String: Int] = [:]
+    @Published var dashboardPeriod: DashboardPeriod = .today
+    @Published var dashboard: DashboardSnapshot?
+    var dashboardAnimatedOnce = false
     @Published var section: AppSection = .dashboard
     @Published var selectedChat: String?
     @Published var insightChat: String?
@@ -318,6 +356,31 @@ final class AppModel: ObservableObject {
         totalIndexed = store.totalMessages()
         recalledToday = store.recalledCount(since: Int64(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970))
         revision += 1
+    }
+
+    func loadDashboard(force: Bool = false) {
+        guard let store else { return }
+        let period = dashboardPeriod
+        if !force, let cur = dashboard, cur.period == period, abs(revision - cur.loadedRevision) < 20 {
+            return
+        }
+        let rev = revision
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let stats = store.periodStats(days: period.days)
+            let pendingCount = store.pendingReplies().count
+            let daily = store.dailyCounts(days: 182)
+            let heat = store.heatmap()
+            let kinds = store.kindCounts()
+            let top = store.topChats(days: period.days ?? 3650, limit: 10)
+            let snap = DashboardSnapshot(
+                stats: stats, pendingCount: pendingCount, daily: daily, heat: heat,
+                kinds: kinds, top: top, period: period, loadedRevision: rev
+            )
+            await MainActor.run { [weak self] in
+                guard let self, self.dashboardPeriod == period else { return }
+                self.dashboard = snap
+            }
+        }
     }
 
     // MARK: - recall protection

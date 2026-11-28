@@ -235,3 +235,60 @@ final class MuteFoldTests: XCTestCase {
         XCTAssertEqual(prioritized.map(\.username), ["g_ok@chatroom"])
     }
 }
+
+final class AnalyticsTests: XCTestCase {
+    func testPeriodStatsAndHeatmapSlot() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lens-analytics-\(UUID().uuidString).sqlite")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        let store = try LensStore(url: url)
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        let todayTs = Int64(todayStart.addingTimeInterval(10 * 3600 + 300).timeIntervalSince1970)
+        let oldTs = Int64(cal.date(byAdding: .day, value: -10, to: todayStart)!.addingTimeInterval(15 * 3600 + 60).timeIntervalSince1970)
+
+        let rows: [LensStore.IndexRow] = [
+            LensStore.IndexRow(
+                src: "message/message_0.db", tbl: "a", localID: 1, serverID: 0,
+                chat: "wxid_a", sender: "wxid_a", isSelf: false, ts: todayTs,
+                decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "今天早上的消息", quote: nil),
+                sentiment: 0.2
+            ),
+            LensStore.IndexRow(
+                src: "message/message_0.db", tbl: "a", localID: 2, serverID: 0,
+                chat: "wxid_a", sender: "wxid_me", isSelf: true, ts: todayTs + 10,
+                decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "我回复一下", quote: nil),
+                sentiment: 0.3
+            ),
+            LensStore.IndexRow(
+                src: "message/message_0.db", tbl: "b", localID: 3, serverID: 0,
+                chat: "wxid_b", sender: "wxid_b", isSelf: false, ts: oldTs,
+                decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "十天前下午的消息", quote: nil),
+                sentiment: 0.0
+            ),
+        ]
+        try store.ingest(rows, src: "message/message_0.db", tbl: "a", watermark: 3)
+
+        let todayStats = store.periodStats(days: 1)
+        XCTAssertEqual(todayStats.total, 2)
+        XCTAssertEqual(todayStats.sentByMe, 1)
+        XCTAssertEqual(todayStats.activeChats, 1)
+
+        let allStats = store.periodStats(days: nil)
+        XCTAssertEqual(allStats.total, 3)
+        XCTAssertEqual(allStats.sentByMe, 1)
+        XCTAssertEqual(allStats.activeChats, 2)
+
+        // Monday-first weekday index for todayTs
+        let appleW = cal.component(.weekday, from: Date(timeIntervalSince1970: TimeInterval(todayTs))) // 1=Sun...7=Sat
+        let monFirstW = (appleW + 5) % 7
+        let heat = store.heatmap()
+        let cell = heat.first { $0.weekday == monFirstW && $0.hour == 10 }
+        XCTAssertEqual(cell?.count, 2)
+
+        let slot = store.heatmapSlot(weekday: monFirstW, hour: 10)
+        XCTAssertEqual(slot.total, 2)
+        XCTAssertEqual(slot.topChats.first?.chat, "wxid_a")
+        XCTAssertEqual(slot.messages.count, 2)
+    }
+}

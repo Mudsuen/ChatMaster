@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         MainActor.assumeIsolated {
             MUClipboard.didCopy = { ClipboardGuard.ownChangeCount = $0 }
+            WeChatReplyService.startObservingFrontmostApp()
             AppModel.shared.start()
             CompanionController.shared.start()
         }

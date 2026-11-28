@@ -4,12 +4,13 @@ import SwiftUI
 
 struct ChatsView: View {
     @EnvironmentObject var model: AppModel
+    @AppStorage(Prefs.showMutedChats) private var showMuted = false
     @State private var filter = ""
     @State private var kindFilter: KindFilter = .all
 
     enum KindFilter: Hashable { case all, person, group, watched }
 
-    private var chats: [ChatSummary] {
+    private var matchingKindAndSearch: [ChatSummary] {
         model.chats.filter { c in
             let kindOK: Bool
             switch kindFilter {
@@ -22,10 +23,29 @@ struct ChatsView: View {
         }
     }
 
+    private var mutedHiddenCount: Int {
+        matchingKindAndSearch.filter { $0.isMuted || $0.isFolded }.count
+    }
+
+    private var chats: [ChatSummary] {
+        if showMuted { return matchingKindAndSearch }
+        return matchingKindAndSearch.filter { !$0.isMuted && !$0.isFolded }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 10) {
-                FilterField(text: $filter, prompt: "筛选会话")
+                HStack(spacing: 6) {
+                    FilterField(text: $filter, prompt: "筛选会话")
+                    Button {
+                        withAnimation(DS.ease) { showMuted.toggle() }
+                    } label: {
+                        Image(systemName: showMuted ? "bell.slash.fill" : "bell.slash")
+                            .foregroundStyle(showMuted ? DS.pick : DS.ink4)
+                    }
+                    .buttonStyle(IconButtonStyle(size: 28))
+                    .help(showMuted ? "隐藏免打扰会话" : "显示已免打扰会话")
+                }
                 BSegmented(selection: $kindFilter, options: [(.all, "全部"), (.person, "私聊"), (.group, "群聊"), (.watched, "关注")],
                            compact: true)
                 ScrollView {
@@ -38,6 +58,20 @@ struct ChatsView: View {
                                         model.setWatched(c.username, !model.watchlist.contains(c.username))
                                     }
                                 }
+                        }
+                        if !showMuted && mutedHiddenCount > 0 {
+                            Button {
+                                withAnimation(DS.ease) { showMuted = true }
+                            } label: {
+                                Text("已隐藏 \(mutedHiddenCount) 个免打扰会话 · 显示")
+                                    .font(DS.micro)
+                                    .foregroundStyle(DS.ink4)
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity)
+                                    .background(DS.wash, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 6)
                         }
                     }
                 }
@@ -70,6 +104,7 @@ struct ChatListRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(chat.display).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.chatTitle).lineLimit(1)
+                    if chat.isMuted { Image(systemName: "bell.slash").font(.system(size: 9.5)).foregroundStyle(DS.ink5) }
                     if watched { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(DS.warning) }
                     Spacer(minLength: 2)
                     Text(Fmt.smart(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
@@ -83,7 +118,7 @@ struct ChatListRow: View {
                             .font(.system(size: 10, weight: .semibold).monospacedDigit())
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(chat.kind == .person ? DS.error : DS.ink5, in: Capsule())
+                            .background(chat.kind == .person && !chat.isMuted ? DS.error : DS.ink5, in: Capsule())
                     }
                 }
             }
