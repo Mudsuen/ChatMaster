@@ -287,6 +287,51 @@ final class MuteFoldTests: XCTestCase {
         let prioritized = store.menuBarChats(limit: 1)
         XCTAssertEqual(prioritized.map(\.username), ["g_ok@chatroom"])
     }
+
+    func testFirstUnreadMessageAndSessionsMigration() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lens-unread-\(UUID().uuidString).sqlite")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+
+        // Legacy DB missing sessions.last_clear_unread.
+        do {
+            let legacy = try SQLiteDB(path: url.path, readonly: false)
+            try legacy.exec("CREATE TABLE sessions(username TEXT PRIMARY KEY, summary TEXT, last_ts INTEGER, unread INTEGER, hidden INTEGER);")
+        }
+
+        let store = try LensStore(url: url)
+        let now: Int64 = 1_700_000_000
+        let rows: [LensStore.IndexRow] = [
+            LensStore.IndexRow(src: "m", tbl: "a", localID: 1, serverID: 1, chat: "wxid_a", sender: "wxid_a",
+                               isSelf: false, ts: now - 100,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "旧已读消息", quote: nil),
+                               sentiment: nil),
+            LensStore.IndexRow(src: "m", tbl: "a", localID: 2, serverID: 2, chat: "wxid_a", sender: "me",
+                               isSelf: true, ts: now - 50,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "我发的消息", quote: nil),
+                               sentiment: nil),
+            LensStore.IndexRow(src: "m", tbl: "a", localID: 3, serverID: 3, chat: "wxid_a", sender: "wxid_a",
+                               isSelf: false, ts: now - 30,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "第一条未读", quote: nil),
+                               sentiment: nil),
+            LensStore.IndexRow(src: "m", tbl: "a", localID: 4, serverID: 4, chat: "wxid_a", sender: "wxid_a",
+                               isSelf: false, ts: now - 10,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "第二条未读", quote: nil),
+                               sentiment: nil),
+        ]
+        try store.ingest(rows, src: "m", tbl: "a", watermark: 4)
+
+        try store.replaceSessions([
+            SessionInfo(username: "wxid_a", summary: "第二条未读", lastTimestamp: now - 10, unread: 2, hidden: false, lastClearUnread: now - 60),
+        ])
+        XCTAssertNil(store.firstUnreadMessage(chat: "wxid_a", unreadCount: 0))
+        XCTAssertEqual(store.firstUnreadMessage(chat: "wxid_a", unreadCount: 2)?.text, "第一条未读")
+
+        // Fallback by unreadCount when lastClearUnread == 0.
+        try store.replaceSessions([
+            SessionInfo(username: "wxid_a", summary: "第二条未读", lastTimestamp: now - 10, unread: 2, hidden: false, lastClearUnread: 0),
+        ])
+        XCTAssertEqual(store.firstUnreadMessage(chat: "wxid_a", unreadCount: 2)?.text, "第一条未读")
+    }
 }
 
 final class AnalyticsTests: XCTestCase {

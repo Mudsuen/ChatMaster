@@ -152,6 +152,7 @@ final class AppModel: ObservableObject {
     @Published var section: AppSection = .dashboard
     @Published var selectedChat: String?
     @Published var focusedMessageID: Int64?
+    @Published var unreadAnchorMessageID: Int64?
     @Published var insightChat: String?
     @Published var inspected: LensMessage?
     @Published var analyses: [Int64: AnalysisState] = [:]
@@ -339,6 +340,18 @@ final class AppModel: ObservableObject {
 
     func effectiveUnread(for chat: ChatSummary) -> Int {
         max(chat.unread, localUnread[chat.username] ?? 0)
+    }
+
+    func displayUnread(for chat: ChatSummary) -> Int {
+        chat.isHidden ? 0 : effectiveUnread(for: chat)
+    }
+
+    var activeUnreadChats: [ChatSummary] {
+        menuBarChats.filter { effectiveUnread(for: $0) > 0 }
+    }
+
+    func firstUnreadMessage(for chat: String, unreadCount: Int) -> LensMessage? {
+        store?.firstUnreadMessage(chat: chat, unreadCount: unreadCount)
     }
 
     func markMenuBarRead(_ chat: String) {
@@ -543,15 +556,42 @@ final class AppModel: ObservableObject {
         searchTrigger += 1
     }
 
-    func openChat(_ chat: String, focusMessage: LensMessage? = nil) {
+    func openNextUnreadChat() {
+        let list = activeUnreadChats
+        guard !list.isEmpty else {
+            navigate(to: .chats)
+            return
+        }
+        let target: ChatSummary
+        if section == .chats, let cur = selectedChat,
+           let idx = list.firstIndex(where: { $0.username == cur }) {
+            target = list[(idx + 1) % list.count]
+        } else {
+            target = list[0]
+        }
+        openChat(target.username, jumpToUnreadCount: effectiveUnread(for: target))
+    }
+
+    func openChat(_ chat: String, focusMessage: LensMessage? = nil, jumpToUnreadCount: Int? = nil) {
+        let unreadCount = jumpToUnreadCount
+            ?? chats.first(where: { $0.username == chat }).map { displayUnread(for: $0) }
+            ?? 0
+        var resolvedFocus = focusMessage
+        if let focusMessage {
+            unreadAnchorMessageID = nil
+            inspect(focusMessage, analyze: false)
+        } else if unreadCount > 0, let firstUnread = firstUnreadMessage(for: chat, unreadCount: unreadCount) {
+            unreadAnchorMessageID = firstUnread.id
+            resolvedFocus = firstUnread
+        } else {
+            unreadAnchorMessageID = nil
+        }
+
         markMenuBarRead(chat)
         isSearchOpen = false
         selectedChat = chat
         section = .chats
-        focusedMessageID = focusMessage?.id
-        if let focusMessage {
-            inspect(focusMessage, analyze: false)
-        }
+        focusedMessageID = resolvedFocus?.id
         recordNavigation()
         showMainWindow()
     }

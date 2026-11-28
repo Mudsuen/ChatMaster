@@ -66,7 +66,8 @@ public final class LensStore: @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
             CREATE TABLE IF NOT EXISTS contacts(username TEXT PRIMARY KEY, remark TEXT, nick TEXT, alias TEXT, kind TEXT,
                 flag INTEGER NOT NULL DEFAULT 0, chat_room_notify INTEGER NOT NULL DEFAULT 1);
-            CREATE TABLE IF NOT EXISTS sessions(username TEXT PRIMARY KEY, summary TEXT, last_ts INTEGER, unread INTEGER, hidden INTEGER);
+            CREATE TABLE IF NOT EXISTS sessions(username TEXT PRIMARY KEY, summary TEXT, last_ts INTEGER, unread INTEGER, hidden INTEGER,
+                last_clear_unread INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS chat_stats(chat TEXT PRIMARY KEY, count INTEGER, last_ts INTEGER, last_text TEXT);
             CREATE TABLE IF NOT EXISTS analyses(key TEXT PRIMARY KEY, kind TEXT, target TEXT, model TEXT, created INTEGER, json TEXT);
             CREATE INDEX IF NOT EXISTS idx_analyses_target ON analyses(kind, target);
@@ -80,6 +81,11 @@ public final class LensStore: @unchecked Sendable {
                 ALTER TABLE contacts ADD COLUMN chat_room_notify INTEGER NOT NULL DEFAULT 1;
                 DELETE FROM kv WHERE k = 'sig:contact';
                 """)
+        }
+        var sessionCols = Set<String>()
+        try db.query("PRAGMA table_info(sessions)") { r in if let n = r.text(1) { sessionCols.insert(n) } }
+        if !sessionCols.contains("last_clear_unread") {
+            try db.exec("ALTER TABLE sessions ADD COLUMN last_clear_unread INTEGER NOT NULL DEFAULT 0")
         }
         var cols = Set<String>()
         try db.query("PRAGMA table_info(messages)") { r in if let n = r.text(1) { cols.insert(n) } }
@@ -209,8 +215,11 @@ public final class LensStore: @unchecked Sendable {
         try writer.transaction {
             try writer.run("DELETE FROM sessions")
             for s in sessions {
-                try writer.run("INSERT OR REPLACE INTO sessions(username, summary, last_ts, unread, hidden) VALUES(?,?,?,?,?)",
-                               [.text(s.username), .text(s.summary), .int(s.lastTimestamp), .int(Int64(s.unread)), .int(s.hidden ? 1 : 0)])
+                try writer.run(
+                    "INSERT OR REPLACE INTO sessions(username, summary, last_ts, unread, hidden, last_clear_unread) VALUES(?,?,?,?,?,?)",
+                    [.text(s.username), .text(s.summary), .int(s.lastTimestamp), .int(Int64(s.unread)),
+                     .int(s.hidden ? 1 : 0), .int(s.lastClearUnread)]
+                )
             }
         }
     }
@@ -351,6 +360,29 @@ public final class LensStore: @unchecked Sendable {
 
     public func message(id: Int64) -> LensMessage? {
         messages("SELECT \(LensStore.cols) FROM messages WHERE id = ?", [.int(id)]).first
+    }
+
+    /// Returns the earliest unread incoming message for `chat` (preferring messages strictly after
+    /// `SessionTable.last_clear_unread`, falling back to the `unreadCount`-th newest incoming message).
+    public func firstUnreadMessage(chat: String, unreadCount: Int) -> LensMessage? {
+        guard unreadCount > 0 else { return nil }
+        let lastClear = (try? reader.scalarInt("SELECT IFNULL(last_clear_unread, 0) FROM sessions WHERE username = ?",
+                                                [.text(chat)])) ?? 0
+        if lastClear > 0 {
+            if let first = messages("""
+                SELECT \(LensStore.cols) FROM messages
+                WHERE chat = ? AND is_self = 0 AND base_type != 10000 AND ts > ?
+                ORDER BY ts ASC, id ASC LIMIT 1
+                """, [.text(chat), .int(lastClear)]).first {
+                return first
+            }
+        }
+        let rows = messages("""
+            SELECT \(LensStore.cols) FROM messages
+            WHERE chat = ? AND is_self = 0 AND base_type != 10000
+            ORDER BY ts DESC, id DESC LIMIT ?
+            """, [.text(chat), .int(Int64(min(unreadCount, 200)))])
+        return rows.last
     }
 
     public func context(for m: LensMessage, before: Int = 12, after: Int = 3) -> [LensMessage] {

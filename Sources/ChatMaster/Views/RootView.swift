@@ -386,7 +386,13 @@ struct IconNavRail: View {
         let hot = hovered == item
         let n = badge(for: item)
         return Button {
-            withAnimation(DS.ease) { model.navigate(to: item) }
+            withAnimation(DS.ease) {
+                if item == .chats && n > 0 {
+                    model.openNextUnreadChat()
+                } else {
+                    model.navigate(to: item)
+                }
+            }
         } label: {
             railGlyph(item.icon, active: on, hovered: hot)
                 .overlay(alignment: .topTrailing) {
@@ -407,7 +413,7 @@ struct IconNavRail: View {
         .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command) : nil)
         .onHover { hovered = $0 ? item : (hovered == item ? nil : hovered) }
         .animation(DS.ease, value: hot)
-        .help("\(item.title) (⌘\(index + 1))")
+        .help(item == .chats && n > 0 ? "会话 · \(n) 条未读，点击跳转 (⌘\(index + 1))" : "\(item.title) (⌘\(index + 1))")
     }
 
     private func railGlyph(_ systemImage: String, active: Bool, hovered: Bool) -> some View {
@@ -429,7 +435,7 @@ struct IconNavRail: View {
 
     private func badge(for s: AppSection) -> Int {
         switch s {
-        case .chats: return model.chats.reduce(0) { $0 + ($1.kind == .person && !$1.isMuted && !$1.isFolded ? $1.unread : 0) }
+        case .chats: return model.menuBarUnreadCount
         default: return 0
         }
     }

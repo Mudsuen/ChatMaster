@@ -56,13 +56,22 @@ struct ChatsView: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(chats) { c in
+                            let unread = model.displayUnread(for: c)
                             ChatListRow(
                                 chat: c,
+                                unread: unread,
                                 watched: model.watchlist.contains(c.username),
                                 selected: model.selectedChat == c.username
                             )
                                 .onTapGesture {
                                     withAnimation(DS.spring) {
+                                        if unread > 0, let first = model.firstUnreadMessage(for: c.username, unreadCount: unread) {
+                                            model.unreadAnchorMessageID = first.id
+                                            model.focusedMessageID = first.id
+                                            model.markMenuBarRead(c.username)
+                                        } else {
+                                            model.unreadAnchorMessageID = nil
+                                        }
                                         model.selectedChat = c.username
                                         model.recordNavigation()
                                     }
@@ -109,6 +118,7 @@ struct ChatsView: View {
 
 struct ChatListRow: View {
     var chat: ChatSummary
+    var unread: Int
     var watched: Bool
     var selected = false
     @State private var hover = false
@@ -139,8 +149,8 @@ struct ChatListRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
-                    if chat.unread > 0 {
-                        Text(chat.unread > 99 ? "99+" : "\(chat.unread)")
+                    if unread > 0 {
+                        Text(unread > 99 ? "99+" : "\(unread)")
                             .font(.system(size: 10, weight: .semibold).monospacedDigit())
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -188,6 +198,17 @@ struct ChatTranscriptView: View {
                                     .padding(.horizontal, 8).padding(.vertical, 2)
                                     .background(DS.wash, in: Capsule())
                                     .frame(maxWidth: .infinity).padding(.top, 10)
+                            }
+                            if model.unreadAnchorMessageID == m.id {
+                                HStack(spacing: 8) {
+                                    Rectangle().fill(DS.pick.opacity(0.35)).frame(height: 1)
+                                    Text("以下为未读消息")
+                                        .font(DS.micro)
+                                        .foregroundStyle(DS.pick)
+                                        .fixedSize()
+                                    Rectangle().fill(DS.pick.opacity(0.35)).frame(height: 1)
+                                }
+                                .padding(.vertical, 6)
                             }
                             MessageBubble(
                                 message: m,
@@ -361,6 +382,7 @@ struct ChatTranscriptView: View {
               target.chat == chat else {
             return
         }
+        let isUnreadJump = (targetID == model.unreadAnchorMessageID)
         if !messages.contains(where: { $0.id == targetID }) {
             let tail = store.messages(chat: chat, limit: 150)
             if tail.contains(where: { $0.id == targetID }) {
@@ -368,18 +390,19 @@ struct ChatTranscriptView: View {
                 viewingContext = false
                 exhausted = tail.count < 150
             } else {
-                messages = store.context(for: target, before: 40, after: 40)
+                messages = store.context(for: target, before: 20, after: 80)
                 viewingContext = true
                 exhausted = false
             }
         }
         highlightedID = targetID
         model.focusedMessageID = nil
+        let anchor: UnitPoint = isUnreadJump ? .top : .center
         DispatchQueue.main.async {
-            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: .center) }
+            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: anchor) }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: .center) }
+            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: anchor) }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             if highlightedID == targetID {
