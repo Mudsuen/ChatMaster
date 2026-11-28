@@ -35,24 +35,21 @@ struct ChatMasterApp: App {
         Settings {
             SettingsView().environmentObject(model)
         }
-
-        MenuBarExtra {
-            MenuBarPopoverView().environmentObject(model)
-        } label: {
-            MenuBarLabel(unreadCount: model.menuBarUnreadCount)
-        }
-        .menuBarExtraStyle(.window)
     }
 }
 
-/// Keeps a reference to SwiftUI's openWindow action so AppKit code can reopen the main window,
+/// Keeps references to SwiftUI's openWindow/openSettings actions so AppKit code can reopen windows,
 /// and keeps the hidden titlebar transparent.
 struct OpenWindowCapture: View {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     var body: some View {
         WindowTitlebarConfigurator()
             .frame(width: 0, height: 0)
-            .onAppear { WindowOpener.shared.open = { openWindow(id: "main") } }
+            .onAppear {
+                WindowOpener.shared.open = { openWindow(id: "main") }
+                WindowOpener.shared.openSettings = { openSettings() }
+            }
     }
 }
 
@@ -78,6 +75,16 @@ private struct WindowTitlebarConfigurator: NSViewRepresentable {
 final class WindowOpener {
     static let shared = WindowOpener()
     var open: (() -> Void)?
+    var openSettings: (() -> Void)?
+
+    func openSettingsWindow() {
+        NSApp.activate()
+        if let openSettings {
+            openSettings()
+        } else {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -87,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             MUClipboard.didCopy = { ClipboardGuard.ownChangeCount = $0 }
             WeChatReplyService.startObservingFrontmostApp()
             AppModel.shared.start()
+            MenuBarController.shared.start(model: AppModel.shared)
             CompanionController.shared.start()
         }
     }

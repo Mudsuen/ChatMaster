@@ -90,22 +90,12 @@ enum ChatMasterGlyph {
     }
 }
 
-struct MenuBarLabel: View {
-    var unreadCount: Int
-
-    var body: some View {
-        Image(nsImage: ChatMasterGlyph.menuBarImage(unreadCount: unreadCount))
-            .id(unreadCount)
-            .accessibilityLabel(unreadCount > 0 ? "ChatMaster，\(unreadCount) 条未读" : "ChatMaster")
-    }
-}
-
 struct MenuBarPopoverView: View {
     @EnvironmentObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
     @AppStorage(Prefs.sidebar) private var sidebar = true
     @AppStorage(Prefs.bubble) private var bubble = true
     @AppStorage(Prefs.sendWithCommandReturn) private var sendWithCommandReturn = false
+    var onClose: () -> Void = {}
 
     @State private var filter: ListFilter = .all
     @State private var selectedChat: ChatSummary?
@@ -138,6 +128,11 @@ struct MenuBarPopoverView: View {
         }
         .frame(width: 390, height: 520)
         .background(DS.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(DS.edge, lineWidth: 1)
+        )
         .animation(DS.spring, value: selectedChat?.username)
         .onDisappear {
             sendError = nil
@@ -197,8 +192,7 @@ struct MenuBarPopoverView: View {
                 .buttonStyle(IconButtonStyle(size: 26))
                 .help("立即同步")
             Button {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "main")
+                onClose()
                 model.showMainWindow()
             } label: { Image(systemName: "macwindow") }
                 .buttonStyle(IconButtonStyle(size: 26))
@@ -211,18 +205,26 @@ struct MenuBarPopoverView: View {
     private var overflowMenu: some View {
         Menu {
             Button("打开 ChatMaster") {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "main")
+                onClose()
                 model.showMainWindow()
             }
             Divider()
-            Button("分析剪贴板文字  ⌃⌥V") { CompanionController.shared.analyzeClipboard() }
-            Button("框选屏幕并分析  ⌃⌥A") { CompanionController.shared.captureAndAnalyze() }
+            Button("分析剪贴板文字  ⌃⌥V") {
+                onClose()
+                CompanionController.shared.analyzeClipboard()
+            }
+            Button("框选屏幕并分析  ⌃⌥A") {
+                onClose()
+                CompanionController.shared.captureAndAnalyze()
+            }
             Divider()
             Toggle("微信吸附侧栏  ⌃⌥S", isOn: $sidebar)
             Toggle("复制即分析气泡", isOn: $bubble)
             Divider()
-            SettingsLink { Text("设置…") }
+            Button("设置…") {
+                onClose()
+                WindowOpener.shared.openSettingsWindow()
+            }
             Button("退出") { NSApp.terminate(nil) }
         } label: {
             Image(systemName: "ellipsis")
@@ -329,7 +331,7 @@ struct MenuBarPopoverView: View {
             reloadMessages(for: username)
         }
         .onAppear {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 inputFocused = true
             }
@@ -359,7 +361,7 @@ struct MenuBarPopoverView: View {
                     .help("分析对方最新消息并生成回复建议")
             }
             Button {
-                openWindow(id: "main")
+                onClose()
                 model.openChat(chat.username)
             } label: { Image(systemName: "arrow.up.right") }
                 .buttonStyle(IconButtonStyle(size: 26))

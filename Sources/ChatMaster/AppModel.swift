@@ -243,6 +243,19 @@ final class AppModel: ObservableObject {
                        let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
                         w.setContentSize(NSSize(width: dims[0], height: dims[1]))
                     }
+                case "menubar":
+                    let sub = parts[1].split(separator: ":", maxSplits: 1).map(String.init)
+                    switch sub.first {
+                    case "open": MenuBarController.shared.showPanel()
+                    case "close": MenuBarController.shared.hidePanel()
+                    case "diag":
+                        if sub.count == 2 {
+                            try? MenuBarController.shared.debugGeometryDescription.write(
+                                toFile: sub[1], atomically: true, encoding: .utf8
+                            )
+                        }
+                    default: break
+                    }
                 case "diag":
                     let c = CompanionController.shared
                     let info = "ax=\(AXIsProcessTrusted()) frame=\(String(describing: c.tracker.frame)) front=\(c.tracker.isFrontmost) sidebarPref=\(Prefs.d.bool(forKey: Prefs.sidebar)) screen=\(CGPreflightScreenCaptureAccess()) chat=\(c.currentChat ?? "-")"
