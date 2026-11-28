@@ -33,6 +33,14 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .briefing: return "newspaper"
         }
     }
+
+    /// Sections where individual messages can be inspected/analyzed in the trailing panel.
+    var supportsInspector: Bool {
+        switch self {
+        case .live, .chats, .pending, .recalls, .search: return true
+        case .dashboard, .insight, .briefing: return false
+        }
+    }
 }
 
 enum LoadState: Equatable {

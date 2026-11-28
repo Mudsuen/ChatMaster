@@ -4,9 +4,13 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    @State private var showInspector = false
+    @State private var showInspector = true
 
     private let panelCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.2)
+
+    private var inspectorVisible: Bool {
+        showInspector && model.section.supportsInspector
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -35,7 +39,7 @@ struct RootView: View {
                 }
                 .clipped()
 
-                if showInspector {
+                if inspectorVisible {
                     Rectangle().fill(DS.edge).frame(width: 1)
                     InspectorView()
                         .frame(width: 280)
@@ -46,16 +50,18 @@ struct RootView: View {
             }
             .frame(minWidth: 520, maxWidth: .infinity, minHeight: 460, maxHeight: .infinity)
             .clipped()
-            .animation(panelCurve, value: showInspector)
+            .animation(panelCurve, value: inspectorVisible)
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    withAnimation(panelCurve) { showInspector.toggle() }
-                } label: {
-                    Label("分析面板", systemImage: "sidebar.trailing")
+            if model.section.supportsInspector {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        withAnimation(panelCurve) { showInspector.toggle() }
+                    } label: {
+                        Label("分析面板", systemImage: "sidebar.trailing")
+                    }
+                    .help("显示/隐藏分析面板")
                 }
-                .help("显示/隐藏分析面板")
             }
         }
         .toolbarBackground(.hidden, for: .windowToolbar)

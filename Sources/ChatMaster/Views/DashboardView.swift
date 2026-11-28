@@ -16,9 +16,9 @@ struct DashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                     StatTile(title: "今日消息", value: overview.today, icon: "sun.max.fill", tint: DS.warning)
                     StatTile(title: "近 7 天", value: overview.week, icon: "calendar", tint: DS.pick)
                     StatTile(title: "今日活跃会话", value: overview.activeChatsToday, icon: "bubble.left.and.bubble.right.fill", tint: DS.ok)
@@ -29,50 +29,59 @@ struct DashboardView: View {
                     StatTile(title: "好友 / 群", text: "\(overview.contacts) / \(overview.groups)", icon: "person.2.fill",
                              tint: Color(muHex: 0xF43F5E))
                 }
-                Card {
-                    VStack(alignment: .leading, spacing: 14) {
-                        SectionTitle(title: "消息量", subtitle: range == .day ? "近 90 天，每天" : "近 26 周，每周",
-                                     trailing: AnyView(BSegmented(selection: $range, options: [(.day, "日"), (.week, "周")])))
-                        StackedBarsView(data: bars, height: 170)
-                        HStack(spacing: 14) {
-                            legend(DS.ink, "发出")
-                            legend(DS.ink.opacity(0.22), "收到")
-                        }
+                Card(padding: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionTitle(
+                            title: "消息量",
+                            subtitle: range == .day ? "近 90 天，每天" : "近 26 周，每周",
+                            trailing: AnyView(
+                                HStack(spacing: 12) {
+                                    HStack(spacing: 10) {
+                                        legend(DS.ink, "发出")
+                                        legend(DS.ink.opacity(0.22), "收到")
+                                    }
+                                    BSegmented(selection: $range, options: [(.day, "日"), (.week, "周")], compact: true)
+                                }
+                            )
+                        )
+                        StackedBarsView(data: bars, height: 140)
                     }
                 }
-                HStack(alignment: .top, spacing: 12) {
-                    Card {
-                        VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
+                    Card(padding: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
                             SectionTitle(title: "活跃时段", subtitle: "近一年 · 星期 × 小时")
                             HeatGridView(cells: heat.map { MUHeatCell(weekday: $0.weekday, hour: $0.hour, count: $0.count) })
                         }
                     }
-                    Card {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SectionTitle(title: "消息构成", subtitle: "每个点约等于 0.5% · 指向查看")
+                    Card(padding: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionTitle(title: "消息构成", subtitle: "每点 0.5% · 指向查看")
                             if !kinds.isEmpty {
                                 DotFieldView(items: kinds.map { MUSegmentItem(label: $0.kind, count: $0.count) },
-                                             cols: 20, rows: 10, caption: "条消息，近一年")
+                                             cols: 25, rows: 8, caption: "条消息，近一年")
                             }
                         }
                     }
-                    .frame(maxWidth: 340)
+                    .frame(maxWidth: 320)
                 }
-                Card {
-                    VStack(alignment: .leading, spacing: 10) {
+                Card(padding: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
                         SectionTitle(title: "近 30 天最常聊", subtitle: "深色为我发出的部分")
-                        ForEach(Array(top.enumerated()), id: \.element.id) { i, c in
-                            Button { model.openChat(c.chat) } label: {
-                                TopChatRow(rank: i + 1, item: c, maxCount: top.first?.count ?? 1)
+                        VStack(spacing: 2) {
+                            ForEach(Array(top.enumerated()), id: \.element.id) { i, c in
+                                Button { model.openChat(c.chat) } label: {
+                                    TopChatRow(rank: i + 1, item: c, maxCount: top.first?.count ?? 1)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
-            .padding(24)
-            .frame(maxWidth: 1100)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18)
+            .padding(.top, 8)
+            .padding(.bottom, 18)
         }
         .defaultScrollAnchor(.top)
         .navigationTitle("")
@@ -105,14 +114,18 @@ struct DashboardView: View {
     private var header: some View {
         let hour = Calendar.current.component(.hour, from: Date())
         let hello = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好"
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(hello).font(.system(size: 30, weight: .semibold)).tracking(-0.6).foregroundStyle(DS.ink)
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(hello)
+                .font(.system(size: 22, weight: .semibold))
+                .tracking(-0.4)
+                .foregroundStyle(Theme.chatTitle)
             if overview.firstTs > 0 {
-                Text("从 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(overview.firstTs)))) 起的聊天记录，都在这里。")
-                    .font(DS.body).foregroundStyle(DS.ink4)
+                Text("始于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(overview.firstTs))))")
+                    .font(DS.sub)
+                    .foregroundStyle(DS.ink4)
             }
+            Spacer(minLength: 0)
         }
-        .padding(.bottom, 4)
     }
 
     private func load() {
@@ -135,12 +148,12 @@ struct TopChatRow: View {
     @State private var grown = false
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if rank > 0 {
                 Text("\(rank)").font(DS.micro.monospacedDigit()).foregroundStyle(DS.ink5).frame(width: 16)
             }
-            AvatarView(username: item.chat, size: 28)
-            Text(item.display).font(DS.body).foregroundStyle(Theme.chatTitle).lineLimit(1).frame(width: 170, alignment: .leading)
+            AvatarView(username: item.chat, size: 24)
+            Text(item.display).font(DS.body).foregroundStyle(Theme.chatTitle).lineLimit(1).frame(width: 150, alignment: .leading)
             GeometryReader { geo in
                 let w = geo.size.width * CGFloat(item.count) / CGFloat(max(maxCount, 1)) * (grown ? 1 : 0)
                 ZStack(alignment: .leading) {
@@ -153,9 +166,9 @@ struct TopChatRow: View {
             RollingNumber(value: item.count, font: .system(size: 12.5, weight: .medium).monospacedDigit(), format: { "\($0)" })
                 .foregroundStyle(DS.ink3).frame(width: 56, alignment: .trailing)
         }
-        .padding(.horizontal, 8)
-        .frame(height: 38)
-        .background(hover ? DS.wash : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 6)
+        .frame(height: 32)
+        .background(hover ? DS.wash : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .animation(DS.ease, value: hover)
