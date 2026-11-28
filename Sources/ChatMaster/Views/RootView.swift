@@ -5,7 +5,6 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    @State private var isSidebarVisible = true
     @State private var showInspector = true
     @State private var topBarWidth: CGFloat = 900
     @FocusState private var searchFocused: Bool
@@ -25,81 +24,68 @@ struct RootView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                if isSidebarVisible {
-                    CompactSidebar(topInset: 44)
-                        .frame(width: 166)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                    Rectangle()
-                        .fill(DS.edge)
-                        .frame(width: 1)
-                }
+        HStack(spacing: 0) {
+            IconNavRail(topInset: 50)
+                .frame(width: 76)
+            Rectangle()
+                .fill(DS.edge)
+                .frame(width: 1)
 
-                VStack(spacing: 0) {
-                    topBar
-                    Rectangle().fill(DS.edge).frame(height: 1)
+            VStack(spacing: 0) {
+                topBar
+                Rectangle().fill(DS.edge).frame(height: 1)
 
-                    ZStack(alignment: .topTrailing) {
-                        HStack(spacing: 0) {
-                            ZStack(alignment: .bottomTrailing) {
-                                Group {
-                                    switch model.state {
-                                    case .starting:
-                                        VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
-                                    case .importing(let phase, let frac):
-                                        ImportingView(phase: phase, fraction: frac)
-                                    case .failed(let msg):
-                                        EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
-                                    case .ready:
-                                        detail.id(model.section)
-                                            .transition(.opacity)
-                                    }
+                ZStack(alignment: .topTrailing) {
+                    HStack(spacing: 0) {
+                        ZStack(alignment: .bottomTrailing) {
+                            Group {
+                                switch model.state {
+                                case .starting:
+                                    VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
+                                case .importing(let phase, let frac):
+                                    ImportingView(phase: phase, fraction: frac)
+                                case .failed(let msg):
+                                    EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
+                                case .ready:
+                                    detail.id(model.section)
+                                        .transition(.opacity)
                                 }
-                                .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
-                                .background(DS.bg)
-                                .animation(DS.ease, value: model.section)
-                                ToastStackView().padding(16)
                             }
-                            .clipped()
-
-                            if inspectorVisible {
-                                Rectangle().fill(DS.edge).frame(width: 1)
-                                InspectorView()
-                                    .frame(width: inspectorWidth)
-                                    .frame(maxHeight: .infinity)
-                                    .background(DS.bg)
-                                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                            }
+                            .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
+                            .background(DS.bg)
+                            .animation(DS.ease, value: model.section)
+                            ToastStackView().padding(16)
                         }
-                        .frame(minWidth: 512, maxWidth: .infinity, maxHeight: .infinity)
                         .clipped()
-                        .animation(panelCurve, value: inspectorVisible)
 
-                        if model.isSearchOpen {
-                            Color.black.opacity(0.18)
-                                .contentShape(Rectangle())
-                                .onTapGesture { closeSearch() }
-                                .transition(.opacity)
-                            SearchOverlayView(close: closeSearch)
-                                .padding(.top, 8)
-                                .padding(.horizontal, 14)
-                                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+                        if inspectorVisible {
+                            Rectangle().fill(DS.edge).frame(width: 1)
+                            InspectorView()
+                                .frame(width: inspectorWidth)
+                                .frame(maxHeight: .infinity)
+                                .background(DS.bg)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
-                    .animation(panelCurve, value: model.isSearchOpen)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(DS.bg)
-            }
+                    .frame(minWidth: 512, maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .animation(panelCurve, value: inspectorVisible)
 
-            TopTrafficChrome(
-                isSidebarVisible: $isSidebarVisible.animation(panelCurve),
-                canGoBack: model.canGoBack,
-                canGoForward: model.canGoForward,
-                goBack: { model.goBack() },
-                goForward: { model.goForward() }
-            )
+                    if model.isSearchOpen {
+                        Color.black.opacity(0.18)
+                            .contentShape(Rectangle())
+                            .onTapGesture { closeSearch() }
+                            .transition(.opacity)
+                        SearchOverlayView(close: closeSearch)
+                            .padding(.top, 8)
+                            .padding(.horizontal, 14)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
+                    }
+                }
+                .animation(panelCurve, value: model.isSearchOpen)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(DS.bg)
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 680, minHeight: 460)
@@ -134,6 +120,15 @@ struct RootView: View {
         let hideSub = topBarWidth > 0 && topBarWidth < 560
         let iconSearch = topBarWidth > 0 && topBarWidth < 500 && !model.isSearchOpen && !searchFocused
         return HStack(spacing: 10) {
+            HStack(spacing: 2) {
+                navArrowButton(systemImage: "chevron.left", help: "返回 (⌘[)", enabled: model.canGoBack) {
+                    model.goBack()
+                }
+                navArrowButton(systemImage: "chevron.right", help: "前进 (⌘])", enabled: model.canGoForward) {
+                    model.goForward()
+                }
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(topTitle)
                     .font(.system(size: 14.5, weight: .semibold))
@@ -167,7 +162,6 @@ struct RootView: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .padding(.leading, isSidebarVisible ? 16 : 162)
 
             Spacer(minLength: 8)
 
@@ -205,10 +199,23 @@ struct RootView: View {
                 .help(showInspector ? "隐藏分析面板" : "显示分析面板")
             }
         }
+        .padding(.leading, 10)
         .padding(.trailing, 14)
         .frame(height: 40)
         .background(WindowDragArea())
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { topBarWidth = $0 }
+    }
+
+    private func navArrowButton(systemImage: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 24, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TopChromeButtonStyle())
+        .disabled(!enabled)
+        .help(help)
     }
 
     private var globalSearchField: some View {
@@ -299,62 +306,6 @@ struct RootView: View {
     }
 }
 
-/// Sidebar toggle and Back/Forward buttons positioned directly beside the macOS traffic lights.
-private struct TopTrafficChrome: View {
-    @Binding var isSidebarVisible: Bool
-    var canGoBack: Bool
-    var canGoForward: Bool
-    var goBack: () -> Void
-    var goForward: () -> Void
-
-    var body: some View {
-        HStack(spacing: 2) {
-            chromeButton(
-                systemImage: "sidebar.left",
-                width: 26,
-                help: isSidebarVisible ? "隐藏侧边栏" : "显示侧边栏",
-                isEnabled: true
-            ) {
-                isSidebarVisible.toggle()
-            }
-            chromeButton(
-                systemImage: "chevron.left",
-                width: 24,
-                help: "返回 (⌘[)",
-                isEnabled: canGoBack,
-                action: goBack
-            )
-            chromeButton(
-                systemImage: "chevron.right",
-                width: 24,
-                help: "前进 (⌘])",
-                isEnabled: canGoForward,
-                action: goForward
-            )
-        }
-        .frame(height: 40)
-        .padding(.leading, 76)
-    }
-
-    private func chromeButton(
-        systemImage: String,
-        width: CGFloat,
-        help: String,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: width, height: 26)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(TopChromeButtonStyle())
-        .disabled(!isEnabled)
-        .help(help)
-    }
-}
-
 private struct TopChromeButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         BodyView(configuration: configuration)
@@ -396,111 +347,84 @@ private struct WindowDragArea: NSViewRepresentable {
     }
 }
 
-/// Compact left navigation sidebar starting cleanly below the traffic lights (no redundant brand header).
-struct CompactSidebar: View {
+/// Vertical Muse-style circular icon rail aligned under the macOS traffic lights.
+struct IconNavRail: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.openSettings) private var openSettings
     @State private var hovered: AppSection?
     @State private var settingsHover = false
-    var topInset: CGFloat = 42
+    var topInset: CGFloat = 50
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(spacing: 10) {
             ForEach(Array(AppSection.allCases.enumerated()), id: \.element.id) { index, item in
-                navRow(item, index: index)
+                railItem(item, index: index)
             }
 
-            Spacer(minLength: 8)
-            settingsRow
+            Spacer(minLength: 12)
+
+            Button {
+                openSettings()
+            } label: {
+                railGlyph("gearshape", active: false, hovered: settingsHover)
+            }
+            .buttonStyle(.plain)
+            .onHover { settingsHover = $0 }
+            .animation(DS.ease, value: settingsHover)
+            .help("设置 (⌘,)")
         }
         .padding(.top, topInset)
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DS.sidebar.overlay(alignment: .top) {
             WindowDragArea().frame(height: topInset)
         })
     }
 
-    private var settingsRow: some View {
-        Button {
-            openSettings()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(settingsHover ? DS.ink : DS.ink4)
-                    .frame(width: 16)
-                Text("设置")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(settingsHover ? Theme.chatTitle : DS.ink3)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 29)
-            .background {
-                if settingsHover {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DS.wash)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { settingsHover = $0 }
-        .animation(DS.ease, value: settingsHover)
-        .help("打开设置 (⌘,)")
-    }
-
-    private func navRow(_ item: AppSection, index: Int) -> some View {
+    private func railItem(_ item: AppSection, index: Int) -> some View {
         let on = model.section == item
         let hot = hovered == item
         let n = badge(for: item)
         return Button {
             withAnimation(DS.ease) { model.navigate(to: item) }
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: item.icon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(on ? DS.ink : DS.ink4)
-                    .frame(width: 16)
-                Text(item.title)
-                    .font(.system(size: 13, weight: on ? .semibold : .regular))
-                    .foregroundStyle(on ? Theme.chatTitle : DS.ink3)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if n > 0 {
-                    Text(n > 99 ? "99+" : "\(n)")
-                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(on ? DS.onSlab : DS.ink3)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(on ? DS.slab : DS.wash2, in: Capsule())
-                        .contentTransition(.numericText())
+            railGlyph(item.icon, active: on, hovered: hot)
+                .overlay(alignment: .topTrailing) {
+                    if n > 0 {
+                        Text(n > 99 ? "99+" : "\(n)")
+                            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4.5)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(DS.error, in: Capsule())
+                            .overlay(Capsule().strokeBorder(DS.sidebar, lineWidth: 1.5))
+                            .offset(x: 2, y: -1)
+                            .contentTransition(.numericText())
+                    }
                 }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 29)
-            .background {
-                if on {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DS.card)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(DS.edge, lineWidth: 0.75)
-                        )
-                } else if hot {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DS.wash)
-                }
-            }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command) : nil)
         .onHover { hovered = $0 ? item : (hovered == item ? nil : hovered) }
         .animation(DS.ease, value: hot)
+        .help("\(item.title) (⌘\(index + 1))")
+    }
+
+    private func railGlyph(_ systemImage: String, active: Bool, hovered: Bool) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 18.5, weight: active ? .semibold : .regular))
+            .foregroundStyle(active ? DS.ink : (hovered ? DS.ink2 : DS.ink3))
+            .frame(width: 42, height: 42)
+            .background {
+                if active {
+                    Circle()
+                        .fill(DS.wash2)
+                        .overlay(Circle().strokeBorder(DS.edge.opacity(0.85), lineWidth: 0.75))
+                } else if hovered {
+                    Circle().fill(DS.wash)
+                }
+            }
+            .contentShape(Circle())
     }
 
     private func badge(for s: AppSection) -> Int {

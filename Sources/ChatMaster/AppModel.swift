@@ -21,9 +21,9 @@ enum AppSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .dashboard: return "square.grid.2x2"
-        case .chats: return "bubble.left.and.bubble.right"
+        case .chats: return "message"
         case .ai: return "sparkles"
-        case .insight: return "person.2.wave.2"
+        case .insight: return "person.2"
         case .briefing: return "newspaper"
         }
     }
