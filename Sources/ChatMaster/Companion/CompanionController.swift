@@ -82,8 +82,10 @@ final class CompanionController: ObservableObject {
     @Published var followWeChat = true
     @Published var collapsed = false
     @Published var detectedByOCR = false
+    @Published var isPreviewing = false
 
     private var sidebarPanel: FloatingPanel?
+    private var sidebarResignObserver: NSObjectProtocol?
     private var bubblePanel: FloatingPanel?
     private var popupPanel: FloatingPanel?
     private var bag = Set<AnyCancellable>()
@@ -142,6 +144,16 @@ final class CompanionController: ObservableObject {
         if tracker.isFrontmost, let chat = currentChat {
             AppModel.shared.markMenuBarRead(chat)
         }
+        if isPreviewing {
+            let panel = sidebarPanel ?? makeSidebar()
+            let vf = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
+            let w: CGFloat = collapsed ? 46 : 340
+            let h = min(680, max(500, vf.height - 80))
+            let target = CGRect(x: vf.maxX - w - 36, y: round(vf.midY - h / 2), width: w, height: collapsed ? min(h, 200) : h)
+            if panel.frame != target { panel.setFrame(target, display: true) }
+            panel.orderFrontRegardless()
+            return
+        }
         let enabled = Prefs.d.bool(forKey: Prefs.sidebar)
         guard enabled, let wf = tracker.frame, tracker.isFrontmost || (sidebarPanel?.isKeyWindow ?? false) else {
             sidebarPanel?.orderOut(nil)
@@ -153,10 +165,31 @@ final class CompanionController: ObservableObject {
         if !panel.isVisible { panel.orderFront(nil) }
     }
 
+    func previewSidebar(chat: String) {
+        currentChat = chat
+        followWeChat = false
+        collapsed = false
+        isPreviewing = true
+        updateSidebar()
+    }
+
+    func endPreview() {
+        isPreviewing = false
+        followWeChat = true
+        updateSidebar()
+    }
+
     private func makeSidebar() -> FloatingPanel {
-        let p = FloatingPanel(size: NSSize(width: 330, height: 600), titled: false)
+        let p = FloatingPanel(size: NSSize(width: 340, height: 600), titled: false)
         p.contentView = NSHostingView(rootView: CompanionSidebarView()
             .environmentObject(AppModel.shared).environmentObject(self))
+        sidebarResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: p,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateSidebar() }
+        }
         sidebarPanel = p
         return p
     }

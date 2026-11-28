@@ -72,7 +72,7 @@ enum WeChatReplyService {
     }
 
     static func send(text rawText: String, to chat: String, contact: Contact?, fallbackDisplay: String,
-                     chats: [ChatSummary], useCommandReturn: Bool) async throws {
+                     chats: [ChatSummary], useCommandReturn: Bool, restorePreviousApp: Bool = true) async throws {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw ReplyError.emptyText }
         guard !isSending else { throw ReplyError.busy }
@@ -158,9 +158,11 @@ enum WeChatReplyService {
         try? await Task.sleep(for: .milliseconds(220))
 
         restoreClipboard(prevClipboard)
-        if weChatWasHidden { app.hide() }
-        if let returnApp, !returnApp.isTerminated {
-            returnApp.activate()
+        if restorePreviousApp {
+            if weChatWasHidden { app.hide() }
+            if let returnApp, !returnApp.isTerminated {
+                returnApp.activate()
+            }
         }
 
         Task { @MainActor in

@@ -80,6 +80,33 @@ final class AgyParsingTests: XCTestCase {
             XCTAssertTrue((e as? AgyError)?.message.contains("未登录") == true)
         }
     }
+
+    func testGroupAndQuickReplyModelsAndPrompts() throws {
+        let groupJSON = #"{"summary":"讨论周末聚餐","atmosphere":"轻松","topics":["聚餐"],"members":[{"name":"小王","role":"发起人","emoji":"😄","mood":"积极","stance":"想吃火锅","intent":"约大家周五晚"}],"mentionsMe":["问我几点到"],"replySuggestions":[{"style":"自然","text":"我七点半能到"}]}"#
+        let g = try JSONDecoder().decode(GroupAnalysis.self, from: Data(groupJSON.utf8))
+        XCTAssertEqual(g.summary, "讨论周末聚餐")
+        XCTAssertEqual(g.members.first?.name, "小王")
+        XCTAssertEqual(g.replySuggestions.first?.text, "我七点半能到")
+
+        let memberJSON = #"{"memberName":"小王","emoji":"🙂","mood":"期待","role":"发起人","stance":"推荐火锅","subtext":"希望大家都去","interactionWithMe":"直接@我确认时间","replySuggestions":[{"style":"简短","text":"没问题七点见"}]}"#
+        let m = try JSONDecoder().decode(GroupMemberAnalysis.self, from: Data(memberJSON.utf8))
+        XCTAssertEqual(m.memberName, "小王")
+        XCTAssertEqual(m.interactionWithMe, "直接@我确认时间")
+
+        let qrJSON = #"{"replySuggestions":[{"style":"自然","text":"好呀"}]}"#
+        let qr = try JSONDecoder().decode(QuickRepliesResult.self, from: Data(qrJSON.utf8))
+        XCTAssertEqual(qr.replySuggestions.first?.style, "自然")
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lens-prompts-\(UUID().uuidString).sqlite")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+        let store = try LensStore(url: url)
+        try store.replaceContacts([Contact(username: "wxid_w", remark: "小王", nick: "", alias: "", kind: .person)], selfUsername: "me")
+        let msg = LensMessage(id: 1, chat: "999@chatroom", sender: "wxid_w", isSelf: false, ts: 1_700_000_000,
+                              baseType: 1, subType: 0, kind: "文本", text: "周五晚上吃火锅？", quote: nil, sentiment: nil)
+        XCTAssertTrue(Prompts.groupAnalysis([msg], chat: "999@chatroom", store: store).contains("小王"))
+        XCTAssertTrue(Prompts.groupMemberAnalysis([msg], chat: "999@chatroom", memberUsername: "wxid_w", store: store).contains("小王"))
+        XCTAssertTrue(Prompts.quickReplies([msg], chat: "999@chatroom", focusMember: "wxid_w", store: store).contains("小王"))
+    }
 }
 
 final class StoreTests: XCTestCase {

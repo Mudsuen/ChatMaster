@@ -38,7 +38,7 @@ struct AIAnalysisView: View {
             switch self {
             case .all: return nil
             case .message: return ["msg", "text"]
-            case .conversation: return ["conv"]
+            case .conversation: return ["conv", "group", "group_member"]
             case .relationship: return ["rel"]
             }
         }
@@ -469,12 +469,13 @@ struct AIAnalysisView: View {
     }
 
     private func canOpenChat(_ r: AnalysisRecord) -> Bool {
-        !r.target.isEmpty && (r.kind == "msg" || r.kind == "text" || r.kind == "conv" || r.kind == "rel")
+        !r.target.isEmpty && (r.kind == "msg" || r.kind == "text" || r.kind == "conv" || r.kind == "group" || r.kind == "rel")
     }
 
     private func recordIcon(_ kind: String) -> String {
         switch kind {
-        case "conv": return "text.bubble"
+        case "conv", "group": return "text.bubble"
+        case "group_member": return "person.crop.circle"
         case "rel": return "person.2.wave.2"
         case "daily": return "newspaper"
         default: return "sparkles"
@@ -484,6 +485,8 @@ struct AIAnalysisView: View {
     private func recordKindLabel(_ kind: String) -> String {
         switch kind {
         case "conv": return "会话总结"
+        case "group": return "群聊分析"
+        case "group_member": return "群成员分析"
         case "rel": return "关系报告"
         case "daily": return "每日简报"
         default: return "消息分析"
@@ -493,6 +496,10 @@ struct AIAnalysisView: View {
     private func recordTitle(_ r: AnalysisRecord) -> String {
         switch r.kind {
         case "daily": return "每日简报 · \(r.target)"
+        case "group_member":
+            let parts = r.target.split(separator: "|", maxSplits: 1).map(String.init)
+            if parts.count == 2 { return "\(model.displayName(parts[1])) · \(model.displayName(parts[0]))" }
+            return r.target
         default: return r.target.isEmpty ? "自由文本" : model.displayName(r.target)
         }
     }
@@ -503,6 +510,14 @@ struct AIAnalysisView: View {
         case "conv":
             if let a = try? JSONDecoder().decode(ConversationAnalysis.self, from: data) {
                 return a.summary.isEmpty ? a.overallMood : a.summary
+            }
+        case "group":
+            if let a = try? JSONDecoder().decode(GroupAnalysis.self, from: data) {
+                return a.summary.isEmpty ? a.atmosphere : a.summary
+            }
+        case "group_member":
+            if let a = try? JSONDecoder().decode(GroupMemberAnalysis.self, from: data) {
+                return "\(a.emoji) \(a.stance.isEmpty ? a.mood : a.stance)"
             }
         case "rel":
             if let a = try? JSONDecoder().decode(RelationshipReport.self, from: data) {
@@ -526,6 +541,18 @@ struct AIAnalysisView: View {
         case "conv":
             if let a = try? JSONDecoder().decode(ConversationAnalysis.self, from: data) {
                 ConversationAnalysisCard(analysis: a)
+            } else {
+                Text(r.json).font(DS.micro.monospaced()).foregroundStyle(DS.ink4).textSelection(.enabled)
+            }
+        case "group":
+            if let a = try? JSONDecoder().decode(GroupAnalysis.self, from: data) {
+                GroupAnalysisCard(analysis: a)
+            } else {
+                Text(r.json).font(DS.micro.monospaced()).foregroundStyle(DS.ink4).textSelection(.enabled)
+            }
+        case "group_member":
+            if let a = try? JSONDecoder().decode(GroupMemberAnalysis.self, from: data) {
+                GroupMemberAnalysisCard(analysis: a)
             } else {
                 Text(r.json).font(DS.micro.monospaced()).foregroundStyle(DS.ink4).textSelection(.enabled)
             }

@@ -11,6 +11,143 @@ extension KeyedDecodingContainer {
 public struct ReplySuggestion: Codable, Hashable, Sendable {
     public var style: String
     public var text: String
+
+    public init(style: String, text: String) {
+        self.style = style
+        self.text = text
+    }
+}
+
+public struct QuickRepliesResult: Codable, Hashable, Sendable {
+    public var replySuggestions: [ReplySuggestion] = []
+
+    enum CodingKeys: String, CodingKey { case replySuggestions }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        replySuggestions = c.v(.replySuggestions, [])
+    }
+
+    public static var schema: [String: Any] {
+        S.obj([
+            "replySuggestions": S.arr(S.obj([
+                "style": S.str("风格，如 自然、简短、温和、幽默、委婉"),
+                "text": S.str("可直接发送给对方的完整回复"),
+            ])),
+        ])
+    }
+}
+
+public struct GroupMemberInsight: Codable, Hashable, Sendable {
+    public var name = ""
+    public var role = ""
+    public var emoji = "🙂"
+    public var mood = ""
+    public var stance = ""
+    public var intent = ""
+
+    enum CodingKeys: String, CodingKey { case name, role, emoji, mood, stance, intent }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.v(.name, ""); role = c.v(.role, ""); emoji = c.v(.emoji, "🙂")
+        mood = c.v(.mood, ""); stance = c.v(.stance, ""); intent = c.v(.intent, "")
+    }
+}
+
+public struct GroupAnalysis: Codable, Hashable, Sendable {
+    public var summary = ""
+    public var atmosphere = ""
+    public var topics: [String] = []
+    public var decisions: [String] = []
+    public var members: [GroupMemberInsight] = []
+    public var mentionsMe: [String] = []
+    public var suggestedNextStep = ""
+    public var replySuggestions: [ReplySuggestion] = []
+
+    enum CodingKeys: String, CodingKey {
+        case summary, atmosphere, topics, decisions, members, mentionsMe, suggestedNextStep, replySuggestions
+    }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = c.v(.summary, ""); atmosphere = c.v(.atmosphere, "")
+        topics = c.v(.topics, []); decisions = c.v(.decisions, [])
+        members = c.v(.members, []); mentionsMe = c.v(.mentionsMe, [])
+        suggestedNextStep = c.v(.suggestedNextStep, ""); replySuggestions = c.v(.replySuggestions, [])
+    }
+
+    public static var schema: [String: Any] {
+        S.obj([
+            "summary": S.str("群聊近期讨论摘要，2-4 句"),
+            "atmosphere": S.str("群内整体氛围，如 热闹调侃、认真协调、各说各话、有点紧张"),
+            "topics": S.arr(S.str("正在聊的话题，1-4 个")),
+            "decisions": S.arr(S.str("已敲定的事项/结论，可为空")),
+            "members": S.arr(S.obj([
+                "name": S.str("发言成员名字，必须与 <chat> 中显示的名字完全一致"),
+                "role": S.str("在本段对话里的角色，如 发起人、主导者、附和、提问、调侃"),
+                "emoji": S.str("代表 TA 情绪的一个 emoji"),
+                "mood": S.str("情绪与语气，2-6 字"),
+                "stance": S.str("核心观点或诉求，一句话"),
+                "intent": S.str("潜在意图，1 句"),
+            ])),
+            "mentionsMe": S.arr(S.str("需要我注意或与我有关的点，可为空")),
+            "suggestedNextStep": S.str("我在群里最合适的动作或策略"),
+            "replySuggestions": S.arr(S.obj([
+                "style": S.str("风格，如 附和、推进、幽默、私聊跟进"),
+                "text": S.str("可直接发到群里的自然回复"),
+            ])),
+        ])
+    }
+}
+
+public struct GroupMemberAnalysis: Codable, Hashable, Sendable {
+    public var memberName = ""
+    public var emoji = "😐"
+    public var mood = ""
+    public var role = ""
+    public var stance = ""
+    public var subtext = ""
+    public var interactionWithMe = ""
+    public var risks: [String] = []
+    public var replySuggestions: [ReplySuggestion] = []
+
+    enum CodingKeys: String, CodingKey {
+        case memberName, emoji, mood, role, stance, subtext, interactionWithMe, risks, replySuggestions
+    }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        memberName = c.v(.memberName, ""); emoji = c.v(.emoji, "😐"); mood = c.v(.mood, "")
+        role = c.v(.role, ""); stance = c.v(.stance, ""); subtext = c.v(.subtext, "")
+        interactionWithMe = c.v(.interactionWithMe, ""); risks = c.v(.risks, [])
+        replySuggestions = c.v(.replySuggestions, [])
+    }
+
+    public static var schema: [String: Any] {
+        S.obj([
+            "memberName": S.str("该成员名字"),
+            "emoji": S.str("代表 TA 当前状态的一个 emoji"),
+            "mood": S.str("整体情绪与语气"),
+            "role": S.str("在群聊里的角色/说话分量"),
+            "stance": S.str("近期发言的核心观点或诉求"),
+            "subtext": S.str("言外之意/态度倾向"),
+            "interactionWithMe": S.str("TA 对我的态度或互动特点，如未互动则写无直接互动"),
+            "risks": S.arr(S.str("沟通需要注意的点，可为空")),
+            "replySuggestions": S.arr(S.obj([
+                "style": S.str("风格"),
+                "text": S.str("针对 TA 发言的建议回复"),
+            ])),
+        ])
+    }
 }
 
 public struct MessageAnalysis: Codable, Hashable, Sendable {

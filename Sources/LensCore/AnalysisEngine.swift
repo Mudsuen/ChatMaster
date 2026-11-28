@@ -82,6 +82,59 @@ public final class AnalysisEngine: @unchecked Sendable {
         return a
     }
 
+    // MARK: - group & per-member & quick replies
+
+    public func latestGroupAnalysis(chat: String) -> (GroupAnalysis, Date)? {
+        guard let r = store.latestAnalysis(kind: "group", target: chat),
+              let a = try? JSONDecoder().decode(GroupAnalysis.self, from: Data(r.json.utf8)) else { return nil }
+        return (a, Date(timeIntervalSince1970: TimeInterval(r.created)))
+    }
+
+    public func analyzeGroup(chat: String, limit: Int = 80, force: Bool = false) async throws -> GroupAnalysis {
+        let msgs = store.messages(chat: chat, limit: limit)
+        guard let last = msgs.last else { throw AgyError(message: "这个群聊没有消息") }
+        let key = "group:\(chat):\(last.id):\(limit)"
+        if !force, let c = cached(key, as: GroupAnalysis.self) { return c }
+        let (a, json) = try await call(Prompts.groupAnalysis(msgs, chat: chat, store: store),
+                                       schema: GroupAnalysis.schema, as: GroupAnalysis.self)
+        store.saveAnalysis(key: key, kind: "group", target: chat, model: config.model, json: json)
+        return a
+    }
+
+    public func latestGroupMemberAnalysis(chat: String, member: String) -> (GroupMemberAnalysis, Date)? {
+        guard let r = store.latestAnalysis(kind: "group_member", target: "\(chat)|\(member)"),
+              let a = try? JSONDecoder().decode(GroupMemberAnalysis.self, from: Data(r.json.utf8)) else { return nil }
+        return (a, Date(timeIntervalSince1970: TimeInterval(r.created)))
+    }
+
+    public func analyzeGroupMember(chat: String, member: String, limit: Int = 80, force: Bool = false) async throws -> GroupMemberAnalysis {
+        let msgs = store.messages(chat: chat, limit: limit)
+        guard let last = msgs.last else { throw AgyError(message: "这个群聊没有消息") }
+        guard msgs.contains(where: { $0.sender == member && !$0.isSystem }) else {
+            throw AgyError(message: "最近 \(limit) 条消息中没有该成员的发言")
+        }
+        let key = "gmem:\(chat):\(member):\(last.id):\(limit)"
+        if !force, let c = cached(key, as: GroupMemberAnalysis.self) { return c }
+        let (a, json) = try await call(Prompts.groupMemberAnalysis(msgs, chat: chat, memberUsername: member, store: store),
+                                       schema: GroupMemberAnalysis.schema, as: GroupMemberAnalysis.self)
+        store.saveAnalysis(key: key, kind: "group_member", target: "\(chat)|\(member)", model: config.model, json: json)
+        return a
+    }
+
+    public func quickReplies(chat: String, focusMember: String? = nil, limit: Int = 30, force: Bool = false) async throws -> [ReplySuggestion] {
+        let msgs = store.messages(chat: chat, limit: limit)
+        guard let last = msgs.last else { throw AgyError(message: "这个会话没有消息") }
+        let scope = focusMember ?? "all"
+        let key = "qreply:\(chat):\(scope):\(last.id)"
+        if !force, let c = cached(key, as: QuickRepliesResult.self), !c.replySuggestions.isEmpty {
+            return c.replySuggestions
+        }
+        let (res, json) = try await call(Prompts.quickReplies(msgs, chat: chat, focusMember: focusMember, store: store),
+                                         schema: QuickRepliesResult.schema, as: QuickRepliesResult.self)
+        store.saveAnalysis(key: key, kind: "qreply", target: chat, model: config.model, json: json)
+        return res.replySuggestions
+    }
+
     // MARK: - relationship
 
     public func latestRelationshipReport(chat: String) -> (RelationshipReport, Date)? {

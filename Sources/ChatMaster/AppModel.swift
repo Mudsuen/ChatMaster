@@ -261,7 +261,14 @@ final class AppModel: ObservableObject {
                     let c = CompanionController.shared
                     let info = "ax=\(AXIsProcessTrusted()) frame=\(String(describing: c.tracker.frame)) front=\(c.tracker.isFrontmost) sidebarPref=\(Prefs.d.bool(forKey: Prefs.sidebar)) screen=\(CGPreflightScreenCaptureAccess()) chat=\(c.currentChat ?? "-")"
                     try? info.write(toFile: parts[1], atomically: true, encoding: .utf8)
-                case "companion": CompanionController.shared.pin(parts[1] == "follow" ? nil : parts[1])
+                case "companion":
+                    if parts[1] == "endpreview" {
+                        CompanionController.shared.endPreview()
+                    } else if parts[1].hasPrefix("preview:") {
+                        CompanionController.shared.previewSidebar(chat: String(parts[1].dropFirst("preview:".count)))
+                    } else {
+                        CompanionController.shared.pin(parts[1] == "follow" ? nil : parts[1])
+                    }
                 default: break
                 }
             }
