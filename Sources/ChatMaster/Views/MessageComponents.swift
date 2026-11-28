@@ -2,7 +2,7 @@ import LensCore
 import MudsUI
 import SwiftUI
 
-/// Row used by the live feed, search results and other lists.
+/// Row used by search results and other message lists.
 struct MessageRow: View {
     @EnvironmentObject var model: AppModel
     var message: LensMessage
@@ -67,41 +67,38 @@ struct MessageMenu: View {
             Label("重新分析", systemImage: "arrow.clockwise")
         }
         Divider()
-        Button { model.openChat(message.chat) } label: { Label("打开会话", systemImage: "bubble.left.and.bubble.right") }
+        Button { model.openChat(message.chat, focusMessage: message) } label: {
+            Label("打开会话", systemImage: "bubble.left.and.bubble.right")
+        }
         Button { copyText(message.text); ToastCenter.shared.show(.success, "已复制", duration: 2) } label: {
             Label("复制文字", systemImage: "doc.on.doc")
         }
     }
 }
 
-struct LiveFeedView: View {
-    @EnvironmentObject var model: AppModel
-
-    private var items: [LensMessage] {
-        model.liveFeed.filter { m in
-            switch model.liveFilter {
-            case .all: return true
-            case .incoming: return !m.isSelf
-            case .privateOnly: return !m.chat.hasSuffix("@chatroom")
-            case .watched: return model.watchlist.contains(m.chat)
-            }
-        }
-    }
-
+struct RecallChip: View {
+    var message: LensMessage
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(items) { m in
-                    MessageRow(message: m, selected: model.inspected?.id == m.id)
-                        .onTapGesture { model.inspect(m, analyze: false) }
-                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+        Chip(text: "已撤回" + (message.recallDelay.map { " · \(Fmt.duration(Double($0)))后" } ?? ""), color: DS.warning)
+            .help(message.recallNotice ?? "对方撤回了这条消息，ChatMaster 保留了原文")
+    }
+}
+
+struct RecallBanner: View {
+    var message: LensMessage
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.uturn.backward.circle.fill").font(.system(size: 18)).foregroundStyle(DS.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("这条消息已被撤回，以下为保留的原文").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(DS.ink)
+                if let at = message.recalledAt {
+                    Text("撤回于 \(Fmt.smart(Date(timeIntervalSince1970: TimeInterval(at))))，发出 \(Fmt.duration(Double(message.recallDelay ?? 0)))后")
+                        .font(DS.micro).foregroundStyle(DS.ink4)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 20)
-            .animation(DS.spring, value: items.first?.id)
+            Spacer(minLength: 0)
         }
-        .overlay { if items.isEmpty { EmptyHint(title: "暂无消息", systemImage: "tray") } }
+        .padding(12)
+        .background(DS.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: DS.innerRadius, style: .continuous))
     }
 }

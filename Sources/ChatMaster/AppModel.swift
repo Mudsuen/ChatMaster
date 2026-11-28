@@ -6,30 +6,24 @@ import SwiftUI
 import UserNotifications
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case dashboard, live, chats, pending, recalls, insight, search, briefing
+    case dashboard, chats, pending, insight, briefing
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "概览"
-        case .live: return "实时"
         case .chats: return "会话"
         case .pending: return "待回复"
-        case .recalls: return "防撤回"
         case .insight: return "关系洞察"
-        case .search: return "搜索"
         case .briefing: return "每日简报"
         }
     }
     var icon: String {
         switch self {
         case .dashboard: return "square.grid.2x2"
-        case .live: return "dot.radiowaves.left.and.right"
         case .chats: return "bubble.left.and.bubble.right"
         case .pending: return "tray.full"
-        case .recalls: return "arrow.uturn.backward.circle"
         case .insight: return "person.2.wave.2"
-        case .search: return "magnifyingglass"
         case .briefing: return "newspaper"
         }
     }
@@ -37,7 +31,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     /// Sections where individual messages can be inspected/analyzed in the trailing panel.
     var supportsInspector: Bool {
         switch self {
-        case .live, .chats, .pending, .recalls, .search: return true
+        case .chats, .pending: return true
         case .dashboard, .insight, .briefing: return false
         }
     }
@@ -132,8 +126,6 @@ final class AppModel: ObservableObject {
         var loadedRevision: Int = -1
     }
 
-    enum LiveFeedFilter: Hashable { case all, incoming, privateOnly, watched }
-
     struct NavEntry: Equatable {
         var section: AppSection
         var selectedChat: String?
@@ -146,7 +138,6 @@ final class AppModel: ObservableObject {
     @Published var lastSync: Date?
     @Published var syncErrors: [String] = []
     @Published var revision = 0
-    @Published var liveFeed: [LensMessage] = []
     @Published var arrivals: [LensMessage] = []
     @Published var chats: [ChatSummary] = []
     @Published var menuBarChats: [ChatSummary] = []
@@ -155,8 +146,8 @@ final class AppModel: ObservableObject {
     @Published var dashboardPeriod: DashboardPeriod = .today
     @Published var dashboard: DashboardSnapshot?
     var dashboardAnimatedOnce = false
-    @Published var liveFilter: LiveFeedFilter = .all
     @Published var searchQuery = ""
+    @Published var isSearchOpen = false
     @Published var searchTrigger = 0
     @Published var focusSearchTrigger = 0
     @Published private(set) var navHistory: [NavEntry] = [NavEntry(section: .dashboard, selectedChat: nil, insightChat: nil)]
@@ -164,6 +155,7 @@ final class AppModel: ObservableObject {
     private var isApplyingHistory = false
     @Published var section: AppSection = .dashboard
     @Published var selectedChat: String?
+    @Published var focusedMessageID: Int64?
     @Published var insightChat: String?
     @Published var inspected: LensMessage?
     @Published var analyses: [Int64: AnalysisState] = [:]
@@ -171,8 +163,7 @@ final class AppModel: ObservableObject {
     @Published var watchlist: Set<String> = []
     @Published var agyModels: [(String, String)] = []
     @Published var totalIndexed = 0
-    @Published var recalledToday = 0
-    @Published var lastRecall: LensMessage?
+    @Published var recalledChatCounts: [String: Int] = [:]
 
     private(set) var store: LensStore?
     private(set) var source: WeChatSource?
@@ -241,6 +232,15 @@ final class AppModel: ObservableObject {
                 case "chat": self.openChat(parts[1])
                 case "inspect": if let id = Int64(parts[1]), let m = self.store?.message(id: id) { self.inspect(m) }
                 case "insight": self.insightChat = parts[1]; self.section = .insight
+                case "search":
+                    switch parts[1] {
+                    case "open": self.isSearchOpen = true
+                    case "close": self.isSearchOpen = false
+                    default:
+                        self.searchQuery = parts[1]
+                        self.isSearchOpen = true
+                        self.searchTrigger += 1
+                    }
                 case "popup": CompanionController.shared.openPopup(text: parts[1], source: .clipboard, near: NSEvent.mouseLocation)
                 case "diag":
                     let c = CompanionController.shared
@@ -312,7 +312,6 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
-            lastRecall = r.recalled.last
             refresh()
         }
         if !r.newMessages.isEmpty {
@@ -364,12 +363,11 @@ final class AppModel: ObservableObject {
     func refresh() {
         guard let store else { return }
         let official = Prefs.d.bool(forKey: Prefs.includeOfficial)
-        liveFeed = store.recent(limit: 300, includeOfficial: official)
         chats = store.chatList(includeOfficial: official)
         menuBarChats = store.menuBarChats(limit: 40)
         recomputeMenuBarState()
         totalIndexed = store.totalMessages()
-        recalledToday = store.recalledCount(since: Int64(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970))
+        recalledChatCounts = store.recalledChatCounts()
         revision += 1
     }
 
@@ -414,10 +412,7 @@ final class AppModel: ObservableObject {
 
     func openRecall(id: Int64) {
         guard let m = store?.message(id: id) else { return }
-        section = .recalls
-        inspect(m, analyze: false)
-        recordNavigation()
-        showMainWindow()
+        openChat(m.chat, focusMessage: m)
     }
 
     // MARK: - names / avatars
@@ -492,6 +487,7 @@ final class AppModel: ObservableObject {
     var canGoForward: Bool { navIndex + 1 < navHistory.count }
 
     func navigate(to target: AppSection) {
+        isSearchOpen = false
         section = target
         recordNavigation()
     }
@@ -531,16 +527,20 @@ final class AppModel: ObservableObject {
     }
 
     func submitGlobalSearch() {
-        navigate(to: .search)
+        isSearchOpen = true
         searchTrigger += 1
     }
 
-    func openChat(_ chat: String) {
+    func openChat(_ chat: String, focusMessage: LensMessage? = nil) {
         markMenuBarRead(chat)
+        isSearchOpen = false
         selectedChat = chat
         section = .chats
+        focusedMessageID = focusMessage?.id
+        if let focusMessage {
+            inspect(focusMessage, analyze: false)
+        }
         recordNavigation()
-        NSApp.activate(ignoringOtherApps: true)
         showMainWindow()
     }
 

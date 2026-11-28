@@ -140,6 +140,53 @@ final class RecallTests: XCTestCase {
         XCTAssertEqual(m.recallNotice, "\"A\" recalled a message")
         XCTAssertNotNil(m.recallDelay)
         XCTAssertEqual(store.search("有点生气").first?.isRecalled, true)
+        XCTAssertEqual(store.recalledChatCounts(), ["wxid_a": 1])
+        XCTAssertEqual(store.recalledMessages(chat: "wxid_a").map(\.text), ["其实我有点生气"])
+        XCTAssertTrue(store.recalledMessages(chat: "wxid_other").isEmpty)
+        XCTAssertEqual(store.search("", recalledOnly: true).map(\.text), ["其实我有点生气"])
+        XCTAssertTrue(store.search("").isEmpty)
+    }
+
+    func testFilteredSearch() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("lens-search-\(UUID().uuidString).sqlite")
+        defer { for s in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: url.path + s) } }
+        let store = try LensStore(url: url)
+        let now = Int64(Date().timeIntervalSince1970)
+        let rows: [LensStore.IndexRow] = [
+            LensStore.IndexRow(src: "message/message_0.db", tbl: "a", localID: 1, serverID: 1, chat: "wxid_a",
+                               sender: "wxid_a", isSelf: false, ts: now - 3600,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "今天喝奶茶吗", quote: nil),
+                               sentiment: nil),
+            LensStore.IndexRow(src: "message/message_0.db", tbl: "a", localID: 2, serverID: 2, chat: "wxid_a",
+                               sender: "me", isSelf: true, ts: now - 60,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "喝呀，奶茶安排上", quote: nil),
+                               sentiment: nil),
+            LensStore.IndexRow(src: "message/message_0.db", tbl: "g", localID: 3, serverID: 3, chat: "100@chatroom",
+                               sender: "wxid_b", isSelf: false, ts: now - 7200,
+                               decoded: DecodedMessage(sender: nil, baseType: 1, subType: 0, kind: "文本", text: "群里喝奶茶", quote: nil),
+                               sentiment: nil),
+        ]
+        try store.ingest(rows, src: "message/message_0.db", tbl: "a", watermark: 3)
+        // Mark message 3 as recalled.
+        try store.ingest([
+            LensStore.IndexRow(src: "message/message_0.db", tbl: "g", localID: 3, serverID: 3, chat: "100@chatroom",
+                               sender: "wxid_b", isSelf: false, ts: now - 7200,
+                               decoded: DecodedMessage(sender: nil, baseType: 10000, subType: 0, kind: "撤回", text: "\"B\" recalled a message", quote: nil, isRevoke: true),
+                               sentiment: nil),
+        ], src: "message/message_0.db", tbl: "g", watermark: 3)
+
+        XCTAssertEqual(store.search("奶茶").count, 3)
+        XCTAssertEqual(store.search("奶茶", sender: .mine).map(\.text), ["喝呀，奶茶安排上"])
+        XCTAssertEqual(store.search("奶茶", sender: .others).count, 2)
+        XCTAssertEqual(store.search("奶茶", chatKind: .group).map(\.text), ["群里喝奶茶"])
+        XCTAssertEqual(store.search("奶茶", chatKind: .person).count, 2)
+        XCTAssertEqual(store.search("奶茶", recalledOnly: true).map(\.text), ["群里喝奶茶"])
+        XCTAssertEqual(store.search("奶茶", since: now - 120).map(\.text), ["喝呀，奶茶安排上"])
+        // Short query (< 3 chars -> LIKE path) with filters.
+        XCTAssertEqual(store.search("喝", recalledOnly: true, chatKind: .group).map(\.text), ["群里喝奶茶"])
+        // Empty query with filter-only browse.
+        XCTAssertEqual(store.search("", chat: "wxid_a", sender: .mine).map(\.text), ["喝呀，奶茶安排上"])
+        XCTAssertEqual(store.search("", recalledOnly: true, chatKind: .group).map(\.text), ["群里喝奶茶"])
     }
 }
 

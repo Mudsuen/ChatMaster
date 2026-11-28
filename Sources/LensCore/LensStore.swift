@@ -1,5 +1,9 @@
 import Foundation
 
+public enum SearchSender: String, CaseIterable, Hashable, Sendable {
+    case all, mine, others
+}
+
 /// Local index: normalized messages + FTS5 (trigram, works for Chinese substrings) + analysis cache.
 /// Contains plaintext chat history; the directory is 700 and files are 600.
 public final class LensStore: @unchecked Sendable {
@@ -11,6 +15,7 @@ public final class LensStore: @unchecked Sendable {
     public private(set) var selfUsername: String = ""
 
     static let cols = "id, chat, sender, is_self, ts, base_type, sub_type, kind, text, quote, sentiment, recalled_at, recall_notice"
+    private static let mCols = cols.split(separator: ",").map { "m." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
 
     public init(url: URL = LensPaths.indexDB) throws {
         self.url = url
@@ -282,6 +287,22 @@ public final class LensStore: @unchecked Sendable {
                  [.int(Int64(limit))])
     }
 
+    public func recalledChatCounts() -> [String: Int] {
+        var out: [String: Int] = [:]
+        try? reader.query("SELECT chat, count(*) FROM messages WHERE recalled_at IS NOT NULL GROUP BY chat") { r in
+            if let chat = r.text(0) { out[chat] = Int(r.int(1)) }
+        }
+        return out
+    }
+
+    public func recalledMessages(chat: String, limit: Int = 300) -> [LensMessage] {
+        let rows = messages("""
+            SELECT \(LensStore.cols) FROM messages WHERE chat = ? AND recalled_at IS NOT NULL
+            ORDER BY ts DESC, id DESC LIMIT ?
+            """, [.text(chat), .int(Int64(limit))])
+        return rows.reversed()
+    }
+
     public func recalledCount(since ts: Int64) -> Int {
         Int((try? reader.scalarInt("SELECT count(*) FROM messages WHERE recalled_at >= ?", [.int(ts)])) ?? 0)
     }
@@ -293,6 +314,7 @@ public final class LensStore: @unchecked Sendable {
     }
 
     static let excludeNoise = "chat NOT LIKE 'gh\\_%' ESCAPE '\\' AND chat NOT IN ('filehelper','weixin','fmessage','notifymessage','brandsessionholder','brandservicesessionholder','@placeholder_foldgroup','newsapp','medianote')"
+    private static let excludeNoiseM = excludeNoise.replacingOccurrences(of: "chat ", with: "m.chat ")
 
     public func totalMessages() -> Int { Int((try? reader.scalarInt("SELECT count(*) FROM messages")) ?? 0) }
 
@@ -338,30 +360,75 @@ public final class LensStore: @unchecked Sendable {
             """, [.int(ts), .int(until), .int(Int64(limit))])
     }
 
-    public func search(_ query: String, chat: String? = nil, limit: Int = 300) -> [LensMessage] {
+    public func search(
+        _ query: String,
+        chat: String? = nil,
+        recalledOnly: Bool = false,
+        sender: SearchSender = .all,
+        chatKind: ChatKind? = nil,
+        since: Int64? = nil,
+        limit: Int = 300
+    ) -> [LensMessage] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        let chatFilter = chat == nil ? "" : " AND m.chat = ?"
+        var clauses: [String] = []
+        var extraParams: [SQLValue] = []
+        if let chat {
+            clauses.append("m.chat = ?")
+            extraParams.append(.text(chat))
+        }
+        if recalledOnly {
+            clauses.append("m.recalled_at IS NOT NULL")
+        }
+        switch sender {
+        case .all: break
+        case .mine: clauses.append("m.is_self = 1")
+        case .others: clauses.append("m.is_self = 0")
+        }
+        if let chatKind {
+            switch chatKind {
+            case .group: clauses.append("m.chat LIKE '%@chatroom'")
+            case .person: clauses.append("m.chat NOT LIKE '%@chatroom' AND \(LensStore.excludeNoiseM)")
+            case .official, .system: break
+            }
+        }
+        if let since {
+            clauses.append("m.ts >= ?")
+            extraParams.append(.int(since))
+        }
+
+        if q.isEmpty {
+            guard !clauses.isEmpty else { return [] }
+            let order = recalledOnly ? "m.recalled_at DESC, m.ts DESC, m.id DESC" : "m.ts DESC, m.id DESC"
+            let sql = """
+                SELECT \(LensStore.mCols) FROM messages m
+                WHERE \(clauses.joined(separator: " AND "))
+                ORDER BY \(order) LIMIT ?
+                """
+            return messages(sql, extraParams + [.int(Int64(limit))])
+        }
+
+        let extraSQL = clauses.isEmpty ? "" : " AND " + clauses.joined(separator: " AND ")
         var params: [SQLValue] = []
         let sql: String
         if q.count >= 3 {
             let phrase = "\"" + q.replacingOccurrences(of: "\"", with: "\"\"") + "\""
             sql = """
-                SELECT \(LensStore.cols.split(separator: ",").map { "m." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", "))
+                SELECT \(LensStore.mCols)
                 FROM messages_fts f JOIN messages m ON m.id = f.rowid
-                WHERE messages_fts MATCH ?\(chatFilter) ORDER BY m.ts DESC LIMIT ?
+                WHERE messages_fts MATCH ?\(extraSQL) ORDER BY m.ts DESC, m.id DESC LIMIT ?
                 """
             params.append(.text(phrase))
         } else {
             sql = """
-                SELECT \(LensStore.cols) FROM messages m WHERE m.text LIKE ? ESCAPE '\\'\(chatFilter)
-                ORDER BY m.ts DESC LIMIT ?
+                SELECT \(LensStore.mCols) FROM messages m
+                WHERE m.text LIKE ? ESCAPE '\\'\(extraSQL)
+                ORDER BY m.ts DESC, m.id DESC LIMIT ?
                 """
             let esc = q.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
                 .replacingOccurrences(of: "_", with: "\\_")
             params.append(.text("%\(esc)%"))
         }
-        if let chat { params.append(.text(chat)) }
+        params.append(contentsOf: extraParams)
         params.append(.int(Int64(limit)))
         return messages(sql, params)
     }

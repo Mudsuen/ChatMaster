@@ -7,6 +7,7 @@ struct ChatsView: View {
     @AppStorage(Prefs.showMutedChats) private var showMuted = false
     @State private var filter = ""
     @State private var kindFilter: KindFilter = .all
+    @State private var recalledOnlyChats = false
 
     enum KindFilter: Hashable { case all, person, group, watched }
 
@@ -19,7 +20,8 @@ struct ChatsView: View {
             case .group: kindOK = c.kind == .group
             case .watched: kindOK = model.watchlist.contains(c.username)
             }
-            return kindOK && (filter.isEmpty || c.display.localizedCaseInsensitiveContains(filter))
+            let recallOK = !recalledOnlyChats || (model.recalledChatCounts[c.username] ?? 0) > 0
+            return kindOK && recallOK && (filter.isEmpty || c.display.localizedCaseInsensitiveContains(filter))
         }
     }
 
@@ -35,15 +37,23 @@ struct ChatsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 10) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     FilterField(text: $filter, prompt: "筛选会话")
+                    Button {
+                        withAnimation(DS.ease) { recalledOnlyChats.toggle() }
+                    } label: {
+                        Image(systemName: recalledOnlyChats ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle")
+                            .foregroundStyle(recalledOnlyChats ? DS.warning : DS.ink4)
+                    }
+                    .buttonStyle(IconButtonStyle(size: 26))
+                    .help(recalledOnlyChats ? "显示全部会话" : "只看含撤回消息的会话")
                     Button {
                         withAnimation(DS.ease) { showMuted.toggle() }
                     } label: {
                         Image(systemName: showMuted ? "bell.slash.fill" : "bell.slash")
                             .foregroundStyle(showMuted ? DS.pick : DS.ink4)
                     }
-                    .buttonStyle(IconButtonStyle(size: 28))
+                    .buttonStyle(IconButtonStyle(size: 26))
                     .help(showMuted ? "隐藏免打扰会话" : "显示已免打扰会话")
                 }
                 BSegmented(selection: $kindFilter, options: [(.all, "全部"), (.person, "私聊"), (.group, "群聊"), (.watched, "关注")],
@@ -51,7 +61,12 @@ struct ChatsView: View {
                 ScrollView {
                     LazyVStack(spacing: 2) {
                         ForEach(chats) { c in
-                            ChatListRow(chat: c, watched: model.watchlist.contains(c.username), selected: model.selectedChat == c.username)
+                            ChatListRow(
+                                chat: c,
+                                watched: model.watchlist.contains(c.username),
+                                recalledCount: model.recalledChatCounts[c.username] ?? 0,
+                                selected: model.selectedChat == c.username
+                            )
                                 .onTapGesture {
                                     withAnimation(DS.spring) {
                                         model.selectedChat = c.username
@@ -63,6 +78,13 @@ struct ChatsView: View {
                                         model.setWatched(c.username, !model.watchlist.contains(c.username))
                                     }
                                 }
+                        }
+                        if chats.isEmpty && recalledOnlyChats && mutedHiddenCount == 0 {
+                            Text("暂无含撤回消息的会话")
+                                .font(DS.sub)
+                                .foregroundStyle(DS.ink5)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 28)
                         }
                         if !showMuted && mutedHiddenCount > 0 {
                             Button {
@@ -100,6 +122,7 @@ struct ChatsView: View {
 struct ChatListRow: View {
     var chat: ChatSummary
     var watched: Bool
+    var recalledCount: Int = 0
     var selected = false
     @State private var hover = false
 
@@ -111,6 +134,12 @@ struct ChatListRow: View {
                     Text(chat.display).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.chatTitle).lineLimit(1)
                     if chat.isMuted { Image(systemName: "bell.slash").font(.system(size: 9.5)).foregroundStyle(DS.ink5) }
                     if watched { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(DS.warning) }
+                    if recalledCount > 0 {
+                        Image(systemName: "arrow.uturn.backward.circle.fill")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(DS.warning)
+                            .help("含 \(recalledCount) 条已保留的撤回消息")
+                    }
                     Spacer(minLength: 2)
                     Text(Fmt.smart(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
                         .font(.system(size: 10.5).monospacedDigit()).foregroundStyle(DS.ink5)
@@ -142,10 +171,17 @@ struct ChatTranscriptView: View {
     var chat: String
     @State private var messages: [LensMessage] = []
     @State private var exhausted = false
+    @State private var recalledOnly = false
+    @State private var viewingContext = false
+    @State private var highlightedID: Int64?
     @State private var convState: ConvState = .idle
     @State private var showSummary = false
 
     enum ConvState { case idle, loading(Date), done(ConversationAnalysis, Date), failed(String) }
+
+    private var chatRecalledCount: Int {
+        model.recalledChatCounts[chat] ?? 0
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -154,7 +190,7 @@ struct ChatTranscriptView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        if !exhausted && !messages.isEmpty {
+                        if !recalledOnly && !exhausted && !messages.isEmpty {
                             Button("加载更早的消息") { loadOlder() }.buttonStyle(BButtonStyle(kind: .ghost, compact: true))
                                 .frame(maxWidth: .infinity).padding(8)
                         }
@@ -165,14 +201,38 @@ struct ChatTranscriptView: View {
                                     .background(DS.wash, in: Capsule())
                                     .frame(maxWidth: .infinity).padding(.top, 10)
                             }
-                            MessageBubble(message: m, isGroup: chat.hasSuffix("@chatroom")).id(m.id)
+                            MessageBubble(message: m, isGroup: chat.hasSuffix("@chatroom"), highlighted: highlightedID == m.id)
+                                .id(m.id)
                         }
                     }
                     .padding(16)
                 }
                 .defaultScrollAnchor(.bottom)
+                .overlay {
+                    if recalledOnly && messages.isEmpty {
+                        EmptyHint(
+                            title: "该会话暂无已拦截的撤回消息",
+                            systemImage: "arrow.uturn.backward.circle",
+                            detail: "ChatMaster 运行期间被撤回的消息会保留原文并显示在这里。"
+                        )
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if viewingContext && !recalledOnly {
+                        Button {
+                            viewingContext = false
+                            reloadMessages()
+                        } label: {
+                            Label("回到最新消息", systemImage: "arrow.down.to.line")
+                        }
+                        .buttonStyle(BButtonStyle(kind: .secondary, compact: true))
+                        .padding(.bottom, 12)
+                    }
+                }
+                .onAppear { focusTargetIfNeeded(proxy: proxy) }
+                .onChange(of: model.focusedMessageID) { _, _ in focusTargetIfNeeded(proxy: proxy) }
                 .onChange(of: messages.last?.id) { _, id in
-                    guard let id else { return }
+                    guard !viewingContext, !recalledOnly, model.focusedMessageID == nil, highlightedID == nil, let id else { return }
                     // Lazy rows settle their heights after the first pass; scroll again once laid out.
                     proxy.scrollTo(id, anchor: .bottom)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo(id, anchor: .bottom) }
@@ -181,7 +241,9 @@ struct ChatTranscriptView: View {
         }
         .background(DS.bg)
         .sheet(isPresented: $showSummary) { summarySheet }
-        .task(id: model.revision) { reloadTail() }
+        .task(id: model.revision) {
+            if model.focusedMessageID == nil { reloadMessages() }
+        }
     }
 
     private var header: some View {
@@ -194,6 +256,29 @@ struct ChatTranscriptView: View {
                 }
             }
             Spacer()
+            Button {
+                withAnimation(DS.ease) {
+                    recalledOnly.toggle()
+                    viewingContext = false
+                }
+                reloadMessages()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: recalledOnly ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle")
+                        .font(.system(size: 11))
+                    Text(chatRecalledCount > 0 ? "撤回 \(chatRecalledCount)" : "仅撤回")
+                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                }
+                .foregroundStyle(recalledOnly ? DS.warning : (chatRecalledCount > 0 ? DS.ink2 : DS.ink4))
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .background(recalledOnly ? DS.warning.opacity(0.16) : DS.wash, in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(recalledOnly ? DS.warning.opacity(0.55) : DS.edge, lineWidth: 0.75)
+                )
+            }
+            .buttonStyle(.plain)
+            .help(recalledOnly ? "返回全部聊天记录" : "只看本会话保留的撤回消息")
             Button { model.setWatched(chat, !model.watchlist.contains(chat)) } label: {
                 Image(systemName: model.watchlist.contains(chat) ? "star.fill" : "star")
                     .foregroundStyle(model.watchlist.contains(chat) ? DS.warning : DS.ink3)
@@ -258,13 +343,58 @@ struct ChatTranscriptView: View {
         }
     }
 
-    private func reloadTail() {
+    private func reloadMessages() {
         guard let store = model.store else { return }
-        let fresh = store.messages(chat: chat, limit: max(150, min(messages.count, 1000)))
-        if fresh.map(\.id) != messages.map(\.id) || fresh.map(\.recalledAt) != messages.map(\.recalledAt) { messages = fresh }
-        if messages.count < 150 { exhausted = true }
+        if recalledOnly {
+            let recalled = store.recalledMessages(chat: chat, limit: 300)
+            messages = recalled
+            exhausted = true
+        } else if !viewingContext {
+            let fresh = store.messages(chat: chat, limit: max(150, min(messages.count, 1000)))
+            if fresh.map(\.id) != messages.map(\.id) || fresh.map(\.recalledAt) != messages.map(\.recalledAt) {
+                messages = fresh
+            }
+            exhausted = fresh.count < 150
+        }
         if case .idle = convState, let (a, at) = model.engine?.latestConversationAnalysis(chat: chat) {
             convState = .done(a, at)
+        }
+    }
+
+    private func focusTargetIfNeeded(proxy: ScrollViewProxy) {
+        guard let targetID = model.focusedMessageID,
+              let store = model.store,
+              let target = store.message(id: targetID),
+              target.chat == chat else {
+            return
+        }
+        if recalledOnly && !target.isRecalled {
+            recalledOnly = false
+        }
+        if !messages.contains(where: { $0.id == targetID }) {
+            let tail = store.messages(chat: chat, limit: 150)
+            if tail.contains(where: { $0.id == targetID }) {
+                messages = tail
+                viewingContext = false
+                exhausted = tail.count < 150
+            } else {
+                messages = store.context(for: target, before: 40, after: 40)
+                viewingContext = true
+                exhausted = false
+            }
+        }
+        highlightedID = targetID
+        model.focusedMessageID = nil
+        DispatchQueue.main.async {
+            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: .center) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(DS.ease) { proxy.scrollTo(targetID, anchor: .center) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            if highlightedID == targetID {
+                withAnimation(DS.ease) { highlightedID = nil }
+            }
         }
     }
 
@@ -280,6 +410,7 @@ struct MessageBubble: View {
     @EnvironmentObject var model: AppModel
     var message: LensMessage
     var isGroup: Bool
+    var highlighted = false
     @State private var hover = false
 
     var body: some View {
@@ -314,8 +445,11 @@ struct MessageBubble: View {
                         .background(message.isSelf ? DS.slab : DS.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(message.isRecalled ? DS.warning : (message.isSelf ? .clear : DS.edge),
-                                              style: StrokeStyle(lineWidth: message.isRecalled ? 1.5 : 1, dash: message.isRecalled ? [4, 3] : []))
+                                .strokeBorder(highlighted ? DS.pick : (message.isRecalled ? DS.warning : (message.isSelf ? .clear : DS.edge)),
+                                              style: StrokeStyle(
+                                                  lineWidth: highlighted ? 2 : (message.isRecalled ? 1.5 : 1),
+                                                  dash: highlighted ? [] : (message.isRecalled ? [4, 3] : [])
+                                              ))
                         }
                         .overlay(alignment: message.isSelf ? .topLeading : .topTrailing) { badge }
                         if !message.isSelf { analyzeButton }
@@ -323,6 +457,13 @@ struct MessageBubble: View {
                 }
                 if !message.isSelf { Spacer(minLength: 70) }
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, highlighted ? 4 : 0)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(highlighted ? DS.pick.opacity(0.10) : .clear)
+            )
+            .animation(DS.ease, value: highlighted)
             .onHover { hover = $0 }
             .contextMenu { MessageMenu(message: message) }
         }

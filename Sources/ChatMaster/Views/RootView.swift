@@ -31,40 +31,54 @@ struct RootView: View {
                     topBar
                     Rectangle().fill(DS.edge).frame(height: 1)
 
-                    HStack(spacing: 0) {
-                        ZStack(alignment: .bottomTrailing) {
-                            Group {
-                                switch model.state {
-                                case .starting:
-                                    VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
-                                case .importing(let phase, let frac):
-                                    ImportingView(phase: phase, fraction: frac)
-                                case .failed(let msg):
-                                    EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
-                                case .ready:
-                                    detail.id(model.section)
-                                        .transition(.opacity)
+                    ZStack(alignment: .topTrailing) {
+                        HStack(spacing: 0) {
+                            ZStack(alignment: .bottomTrailing) {
+                                Group {
+                                    switch model.state {
+                                    case .starting:
+                                        VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
+                                    case .importing(let phase, let frac):
+                                        ImportingView(phase: phase, fraction: frac)
+                                    case .failed(let msg):
+                                        EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
+                                    case .ready:
+                                        detail.id(model.section)
+                                            .transition(.opacity)
+                                    }
                                 }
-                            }
-                            .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
-                            .background(DS.bg)
-                            .animation(DS.ease, value: model.section)
-                            ToastStackView().padding(16)
-                        }
-                        .clipped()
-
-                        if inspectorVisible {
-                            Rectangle().fill(DS.edge).frame(width: 1)
-                            InspectorView()
-                                .frame(width: 280)
-                                .frame(maxHeight: .infinity)
+                                .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
                                 .background(DS.bg)
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
+                                .animation(DS.ease, value: model.section)
+                                ToastStackView().padding(16)
+                            }
+                            .clipped()
+
+                            if inspectorVisible {
+                                Rectangle().fill(DS.edge).frame(width: 1)
+                                InspectorView()
+                                    .frame(width: 280)
+                                    .frame(maxHeight: .infinity)
+                                    .background(DS.bg)
+                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                            }
+                        }
+                        .frame(minWidth: 512, maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+                        .animation(panelCurve, value: inspectorVisible)
+
+                        if model.isSearchOpen {
+                            Color.black.opacity(0.18)
+                                .contentShape(Rectangle())
+                                .onTapGesture { closeSearch() }
+                                .transition(.opacity)
+                            SearchOverlayView(close: closeSearch)
+                                .padding(.top, 8)
+                                .padding(.horizontal, 14)
+                                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topTrailing)))
                         }
                     }
-                    .frame(minWidth: 512, maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .animation(panelCurve, value: inspectorVisible)
+                    .animation(panelCurve, value: model.isSearchOpen)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(DS.bg)
@@ -92,8 +106,19 @@ struct RootView: View {
             }
         }
         .onChange(of: model.focusSearchTrigger) { _, _ in
+            withAnimation(panelCurve) { model.isSearchOpen = true }
             searchFocused = true
         }
+        .onChange(of: searchFocused) { _, focused in
+            if focused {
+                withAnimation(panelCurve) { model.isSearchOpen = true }
+            }
+        }
+    }
+
+    private func closeSearch() {
+        withAnimation(panelCurve) { model.isSearchOpen = false }
+        searchFocused = false
     }
 
     private var topBar: some View {
@@ -122,12 +147,6 @@ struct RootView: View {
                     options: AppModel.DashboardPeriod.allCases.map { ($0, $0.title) },
                     compact: true
                 )
-            } else if model.section == .live {
-                BSegmented(
-                    selection: $model.liveFilter,
-                    options: [(.all, "全部"), (.incoming, "收到"), (.privateOnly, "私聊"), (.watched, "关注")],
-                    compact: true
-                )
             }
 
             if model.section.supportsInspector {
@@ -147,15 +166,20 @@ struct RootView: View {
     }
 
     private var globalSearchField: some View {
-        HStack(spacing: 6) {
+        let active = searchFocused || model.isSearchOpen
+        return HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(searchFocused ? DS.pick : DS.ink4)
+                .foregroundStyle(active ? DS.pick : DS.ink4)
             TextField("搜索聊天记录… (⌘K)", text: $model.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .focused($searchFocused)
                 .onSubmit { model.submitGlobalSearch() }
+                .onKeyPress(.escape) {
+                    closeSearch()
+                    return .handled
+                }
             if !model.searchQuery.isEmpty {
                 Button {
                     model.searchQuery = ""
@@ -172,9 +196,15 @@ struct RootView: View {
         .frame(minWidth: 150, idealWidth: 210, maxWidth: 250)
         .background(DS.wash, in: Capsule())
         .overlay(
-            Capsule().strokeBorder(searchFocused ? DS.pick.opacity(0.65) : DS.edge, lineWidth: searchFocused ? 1.25 : 0.75)
+            Capsule().strokeBorder(active ? DS.pick.opacity(0.65) : DS.edge, lineWidth: active ? 1.25 : 0.75)
         )
-        .animation(DS.ease, value: searchFocused)
+        .contentShape(Capsule())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                withAnimation(panelCurve) { model.isSearchOpen = true }
+            }
+        )
+        .animation(DS.ease, value: active)
     }
 
     private var topTitle: String {
@@ -190,8 +220,6 @@ struct RootView: View {
         case .dashboard:
             guard let ts = model.dashboard?.stats.firstTs, ts > 0 else { return nil }
             return "始于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(ts))))"
-        case .live:
-            return model.lastSync.map { "更新于 \(Fmt.time.string(from: $0))" }
         default:
             return nil
         }
@@ -200,12 +228,9 @@ struct RootView: View {
     @ViewBuilder private var detail: some View {
         switch model.section {
         case .dashboard: DashboardView()
-        case .live: LiveFeedView()
         case .chats: ChatsView()
         case .pending: PendingView()
-        case .recalls: RecallsView()
         case .insight: InsightView()
-        case .search: SearchView()
         case .briefing: BriefingView()
         }
     }
@@ -385,7 +410,6 @@ struct CompactSidebar: View {
     private func badge(for s: AppSection) -> Int {
         switch s {
         case .chats: return model.chats.reduce(0) { $0 + ($1.kind == .person && !$1.isMuted && !$1.isFolded ? $1.unread : 0) }
-        case .recalls: return model.recalledToday
         default: return 0
         }
     }
@@ -459,7 +483,7 @@ struct InspectorView: View {
                             Text("\(model.displayName(m.chat)) · \(Fmt.smart(m.date))").font(DS.sub).foregroundStyle(DS.ink4)
                         }
                         Spacer()
-                        Button { model.openChat(m.chat) } label: { Image(systemName: "arrow.up.right") }
+                        Button { model.openChat(m.chat, focusMessage: m) } label: { Image(systemName: "arrow.up.right") }
                             .buttonStyle(IconButtonStyle()).help("打开会话")
                     }
                     if m.isRecalled { RecallBanner(message: m) }
