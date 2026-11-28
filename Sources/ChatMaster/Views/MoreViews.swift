@@ -3,75 +3,6 @@ import LensCore
 import MudsUI
 import SwiftUI
 
-struct PendingView: View {
-    @EnvironmentObject var model: AppModel
-    @State private var items: [PendingReply] = []
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("最近 7 天，对方在等你的会话 · \(items.count) 个")
-                    .font(DS.sub).foregroundStyle(DS.ink4)
-                Spacer()
-            }
-            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(items) { p in PendingCard(item: p) }
-                }
-                .padding(.horizontal, 20).padding(.bottom, 20)
-            }
-            .overlay { if items.isEmpty { EmptyHint(title: "没有人在等你", systemImage: "checkmark.seal", detail: "对方有提问、请求或在群里 @ 你时会出现在这里。") } }
-        }
-        .task(id: model.revision) {
-            guard let store = model.store else { return }
-            let r = await Task.detached { store.pendingReplies() }.value
-            withAnimation(DS.spring) { items = r }
-        }
-    }
-}
-
-private struct PendingCard: View {
-    @EnvironmentObject var model: AppModel
-    var item: PendingReply
-
-    var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    AvatarView(username: item.chat, size: 40)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.display).font(DS.title).foregroundStyle(Theme.chatTitle)
-                        Text("已等待 \(Fmt.duration(item.waiting))").font(DS.sub)
-                            .foregroundStyle(item.waiting > 6 * 3600 ? DS.warning : DS.ink4)
-                    }
-                    Spacer()
-                    FlowLayout(spacing: 5) { ForEach(item.reasons, id: \.self) { Chip(text: $0, color: DS.warning) } }
-                        .frame(maxWidth: 260, alignment: .trailing)
-                    Button("打开") { model.openChat(item.chat) }.buttonStyle(BButtonStyle(kind: .primary, compact: true))
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(item.recent.suffix(3)) { m in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(m.isSelf ? "我" : model.senderLabel(m)).font(DS.micro)
-                                .foregroundStyle(m.isSelf ? DS.ink : DS.ink4).frame(width: 64, alignment: .trailing).lineLimit(1)
-                            Text(m.text).font(DS.body).foregroundStyle(DS.ink2).lineLimit(2)
-                            Spacer()
-                            if !m.isSelf && m.isTextual {
-                                Button { model.inspect(m) } label: { Image(systemName: "sparkles") }
-                                    .buttonStyle(IconButtonStyle(size: 24)).help("分析")
-                            }
-                        }
-                        .contextMenu { MessageMenu(message: m) }
-                    }
-                }
-                .padding(10)
-                .background(DS.wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-        }
-    }
-}
-
 struct InsightView: View {
     @EnvironmentObject var model: AppModel
     @State private var chat: String?
@@ -79,8 +10,11 @@ struct InsightView: View {
     @State private var heat: [HeatCell] = []
     @State private var report: ReportState = .idle
     @State private var picker = ""
+    @State private var detailWidth: CGFloat = 700
 
     enum ReportState { case idle, loading(Date), done(RelationshipReport, Date), failed(String) }
+
+    private var compactDetail: Bool { detailWidth > 0 && detailWidth < 460 }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -108,6 +42,7 @@ struct InsightView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
         }
         .onAppear { if let c = model.insightChat { chat = c; model.insightChat = nil } }
         .onChange(of: model.insightChat) { _, c in if let c { chat = c; model.insightChat = nil } }
@@ -123,18 +58,25 @@ struct InsightView: View {
     }
 
     @ViewBuilder private func content(chat: String, s: RelationshipStats) -> some View {
+        let stackLower = detailWidth > 0 && detailWidth < 560
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 AvatarView(username: chat, size: 56)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.displayName(chat)).font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+                    Text(model.displayName(chat))
+                        .font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if s.firstTs > 0 {
                         Text("相识于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(s.firstTs)))) · 聊过 \(s.activeDays) 天")
-                            .font(DS.body).foregroundStyle(DS.ink4)
+                            .font(DS.body)
+                            .foregroundStyle(DS.ink4)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
-                Spacer()
-                if !s.topSenders.isEmpty {
+                Spacer(minLength: 4)
+                if !compactDetail && !s.topSenders.isEmpty {
                     AvatarStack(items: s.topSenders.map(\.chat)) { AvatarView(username: $0, size: 26) }
                 }
             }
@@ -178,27 +120,22 @@ struct InsightView: View {
                     .frame(height: 140)
                 }
             }
-            HStack(alignment: .top, spacing: 12) {
-                Card {
+            Group {
+                if stackLower {
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionTitle(title: "什么时候聊", subtitle: "星期 × 小时")
-                        HeatGridView(cells: heat.map { MUHeatCell(weekday: $0.weekday, hour: $0.hour, count: $0.count) })
+                        whenChatCard
+                        if !s.topSenders.isEmpty { topSendersCard(s) }
                     }
-                }
-                if !s.topSenders.isEmpty {
-                    Card {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SectionTitle(title: "群内最活跃")
-                            ForEach(Array(s.topSenders.prefix(8).enumerated()), id: \.element.id) { i, c in
-                                TopChatRow(rank: i + 1, item: c, maxCount: s.topSenders.first?.count ?? 1)
-                            }
-                        }
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        whenChatCard
+                        if !s.topSenders.isEmpty { topSendersCard(s) }
                     }
                 }
             }
             Card {
                 VStack(alignment: .leading, spacing: 14) {
-                    SectionTitle(title: "AI 关系报告", subtitle: "基于统计与最近 400 条文字消息", trailing: AnyView(reportButton(chat)))
+                    SectionTitle(title: "AI 关系报告", subtitle: compactDetail ? nil : "基于统计与最近 400 条文字消息", trailing: AnyView(reportButton(chat)))
                     switch report {
                     case .idle:
                         Text("报告内容会发送给 agy 使用的模型生成。").font(DS.sub).foregroundStyle(DS.ink5)
@@ -214,9 +151,30 @@ struct InsightView: View {
         }
     }
 
+    private var whenChatCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionTitle(title: "什么时候聊", subtitle: "星期 × 小时")
+                HeatGridView(cells: heat.map { MUHeatCell(weekday: $0.weekday, hour: $0.hour, count: $0.count) })
+            }
+        }
+    }
+
+    private func topSendersCard(_ s: RelationshipStats) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionTitle(title: "群内最活跃")
+                ForEach(Array(s.topSenders.prefix(8).enumerated()), id: \.element.id) { i, c in
+                    TopChatRow(rank: i + 1, item: c, maxCount: s.topSenders.first?.count ?? 1, compact: compactDetail)
+                }
+            }
+        }
+    }
+
     private func reportButton(_ chat: String) -> some View {
         let isDone: Bool = { if case .done = report { return true }; return false }()
         let isLoading: Bool = { if case .loading = report { return true }; return false }()
+        let iconOnly = detailWidth > 0 && detailWidth < 400
         return Button {
             guard let engine = model.engine else { return }
             report = .loading(Date())
@@ -224,9 +182,17 @@ struct InsightView: View {
                 do { report = .done(try await engine.relationshipReport(chat: chat, force: isDone), Date()) }
                 catch { report = .failed(error.localizedDescription) }
             }
-        } label: { Label(isDone ? "重新生成" : "生成报告", systemImage: "sparkles") }
+        } label: {
+            if iconOnly {
+                Image(systemName: "sparkles")
+            } else {
+                Label(isDone ? "重新生成" : "生成报告", systemImage: "sparkles")
+            }
+        }
             .buttonStyle(BButtonStyle(kind: isDone ? .secondary : .primary, compact: true))
+            .fixedSize()
             .disabled(isLoading)
+            .help(isDone ? "重新生成关系报告" : "生成 AI 关系报告")
     }
 }
 
@@ -238,9 +204,17 @@ private struct PickRow: View {
     var body: some View {
         HStack(spacing: 9) {
             AvatarView(username: chat.username, size: 26)
-            Text(chat.display).font(DS.body).foregroundStyle(Theme.chatTitle).lineLimit(1)
-            Spacer()
-            Text(Fmt.count(chat.count)).font(.system(size: 10.5).monospacedDigit()).foregroundStyle(DS.ink5)
+            Text(chat.display)
+                .font(DS.body)
+                .foregroundStyle(Theme.chatTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Text(Fmt.count(chat.count))
+                .font(.system(size: 10.5).monospacedDigit())
+                .foregroundStyle(DS.ink5)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 8).frame(height: 36)
         .background(selected ? DS.card : (hover ? DS.wash : .clear), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
@@ -255,20 +229,33 @@ struct BriefingView: View {
     @EnvironmentObject var model: AppModel
     @State private var day = Date()
     @State private var state: BriefState = .idle
+    @State private var viewWidth: CGFloat = 700
 
     enum BriefState { case idle, loading(Date), done(DailyBriefing, Date), failed(String) }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let iconOnly = viewWidth > 0 && viewWidth < 420
+        return VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text(Fmt.day.string(from: day)).font(DS.sub).foregroundStyle(DS.ink4)
-                Spacer()
+                Text(Fmt.day.string(from: day))
+                    .font(DS.sub)
+                    .foregroundStyle(DS.ink4)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 4)
                 DatePicker("", selection: $day, in: ...Date(), displayedComponents: .date)
                     .labelsHidden().datePickerStyle(.field).frame(width: 120)
                 Button { generate(force: isDone) } label: {
-                    Label(isDone ? "重新生成" : "生成简报", systemImage: "sparkles")
+                    if iconOnly {
+                        Image(systemName: "sparkles")
+                    } else {
+                        Label(isDone ? "重新生成" : "生成简报", systemImage: "sparkles")
+                    }
                 }
-                .buttonStyle(BButtonStyle(kind: .primary, compact: true)).disabled(isLoading)
+                .buttonStyle(BButtonStyle(kind: .primary, compact: true))
+                .fixedSize()
+                .disabled(isLoading)
+                .help(isDone ? "重新生成简报" : "生成简报")
             }
             .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
             ScrollView {
@@ -288,6 +275,7 @@ struct BriefingView: View {
                 .animation(DS.spring, value: isDone)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
         .task(id: AnalysisEngine.dayKey(day)) {
             if let (b, at) = model.engine?.latestBriefing(day: day) { state = .done(b, at) } else { state = .idle }
         }
@@ -306,6 +294,7 @@ struct BriefingView: View {
     }
 
     @ViewBuilder private func briefing(_ b: DailyBriefing, at: Date) -> some View {
+        let stackCards = viewWidth > 0 && viewWidth < 520
         Text(b.headline).font(.system(size: 22, weight: .semibold)).tracking(-0.4).foregroundStyle(DS.ink)
             .textSelection(.enabled).padding(.vertical, 4)
         if !b.highlights.isEmpty {
@@ -324,26 +313,16 @@ struct BriefingView: View {
                 }
             }
         }
-        HStack(alignment: .top, spacing: 12) {
-            if !b.needReply.isEmpty {
-                Card {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionTitle(title: "需要回复")
-                        ForEach(b.needReply, id: \.self) { n in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(n.chat).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(DS.ink)
-                                Text(n.reason).font(DS.sub).foregroundStyle(DS.ink4)
-                            }
-                        }
-                    }
+        Group {
+            if stackCards {
+                VStack(alignment: .leading, spacing: 12) {
+                    needReplyCard(b)
+                    myPromisesCard(b)
                 }
-            }
-            if !b.myPromises.isEmpty {
-                Card {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionTitle(title: "我答应的事")
-                        ForEach(b.myPromises, id: \.self) { ChecklistRow(text: $0).font(DS.body) }
-                    }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    needReplyCard(b)
+                    myPromisesCard(b)
                 }
             }
         }
@@ -356,5 +335,32 @@ struct BriefingView: View {
             }
         }
         Text("生成于 \(Fmt.smart(at))").font(DS.micro).foregroundStyle(DS.ink5)
+    }
+
+    @ViewBuilder private func needReplyCard(_ b: DailyBriefing) -> some View {
+        if !b.needReply.isEmpty {
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle(title: "需要回复")
+                    ForEach(b.needReply, id: \.self) { n in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(n.chat).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(DS.ink)
+                            Text(n.reason).font(DS.sub).foregroundStyle(DS.ink4)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func myPromisesCard(_ b: DailyBriefing) -> some View {
+        if !b.myPromises.isEmpty {
+            Card {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle(title: "我答应的事")
+                    ForEach(b.myPromises, id: \.self) { ChecklistRow(text: $0).font(DS.body) }
+                }
+            }
+        }
     }
 }

@@ -62,6 +62,33 @@ struct AvatarView: View {
     }
 }
 
+enum DateFmt {
+    private static let monthDay: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "M/d"
+        return f
+    }()
+
+    private static let yearMonthDay: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "yy/M/d"
+        return f
+    }()
+
+    /// Compact single-line date formatter for list rows (never wraps like `"11月25日 11:35"`).
+    static func compactList(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return Fmt.time.string(from: date) }
+        if cal.isDateInYesterday(date) { return "昨天" }
+        if cal.component(.year, from: date) == cal.component(.year, from: Date()) {
+            return monthDay.string(from: date)
+        }
+        return yearMonthDay.string(from: date)
+    }
+}
+
 /// Copies text and marks the change as ours so the clipboard bubble ignores it.
 func copyText(_ text: String) {
     MUClipboard.copy(text)

@@ -7,9 +7,13 @@ struct ChatsView: View {
     @AppStorage(Prefs.showMutedChats) private var showMuted = false
     @State private var filter = ""
     @State private var kindFilter: KindFilter = .all
-    @State private var recalledOnlyChats = false
+    @State private var totalWidth: CGFloat = 700
 
     enum KindFilter: Hashable { case all, person, group, watched }
+
+    private var listWidth: CGFloat {
+        (totalWidth > 0 && totalWidth < 560) ? 192 : 224
+    }
 
     private var matchingKindAndSearch: [ChatSummary] {
         model.chats.filter { c in
@@ -20,8 +24,7 @@ struct ChatsView: View {
             case .group: kindOK = c.kind == .group
             case .watched: kindOK = model.watchlist.contains(c.username)
             }
-            let recallOK = !recalledOnlyChats || (model.recalledChatCounts[c.username] ?? 0) > 0
-            return kindOK && recallOK && (filter.isEmpty || c.display.localizedCaseInsensitiveContains(filter))
+            return kindOK && (filter.isEmpty || c.display.localizedCaseInsensitiveContains(filter))
         }
     }
 
@@ -37,16 +40,8 @@ struct ChatsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 10) {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     FilterField(text: $filter, prompt: "筛选会话")
-                    Button {
-                        withAnimation(DS.ease) { recalledOnlyChats.toggle() }
-                    } label: {
-                        Image(systemName: recalledOnlyChats ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle")
-                            .foregroundStyle(recalledOnlyChats ? DS.warning : DS.ink4)
-                    }
-                    .buttonStyle(IconButtonStyle(size: 26))
-                    .help(recalledOnlyChats ? "显示全部会话" : "只看含撤回消息的会话")
                     Button {
                         withAnimation(DS.ease) { showMuted.toggle() }
                     } label: {
@@ -64,7 +59,6 @@ struct ChatsView: View {
                             ChatListRow(
                                 chat: c,
                                 watched: model.watchlist.contains(c.username),
-                                recalledCount: model.recalledChatCounts[c.username] ?? 0,
                                 selected: model.selectedChat == c.username
                             )
                                 .onTapGesture {
@@ -78,13 +72,6 @@ struct ChatsView: View {
                                         model.setWatched(c.username, !model.watchlist.contains(c.username))
                                     }
                                 }
-                        }
-                        if chats.isEmpty && recalledOnlyChats && mutedHiddenCount == 0 {
-                            Text("暂无含撤回消息的会话")
-                                .font(DS.sub)
-                                .foregroundStyle(DS.ink5)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 28)
                         }
                         if !showMuted && mutedHiddenCount > 0 {
                             Button {
@@ -104,7 +91,7 @@ struct ChatsView: View {
                 }
             }
             .padding(10)
-            .frame(width: 232)
+            .frame(width: listWidth)
             .background(DS.bg)
             Rectangle().fill(DS.edge).frame(width: 1)
             Group {
@@ -116,13 +103,13 @@ struct ChatsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { totalWidth = $0 }
     }
 }
 
 struct ChatListRow: View {
     var chat: ChatSummary
     var watched: Bool
-    var recalledCount: Int = 0
     var selected = false
     @State private var hover = false
 
@@ -131,22 +118,27 @@ struct ChatListRow: View {
             AvatarView(username: chat.username, size: 38)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
-                    Text(chat.display).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.chatTitle).lineLimit(1)
+                    Text(chat.display)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundStyle(Theme.chatTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if chat.isMuted { Image(systemName: "bell.slash").font(.system(size: 9.5)).foregroundStyle(DS.ink5) }
                     if watched { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(DS.warning) }
-                    if recalledCount > 0 {
-                        Image(systemName: "arrow.uturn.backward.circle.fill")
-                            .font(.system(size: 9.5))
-                            .foregroundStyle(DS.warning)
-                            .help("含 \(recalledCount) 条已保留的撤回消息")
-                    }
-                    Spacer(minLength: 2)
-                    Text(Fmt.smart(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
-                        .font(.system(size: 10.5).monospacedDigit()).foregroundStyle(DS.ink5)
+                    Spacer(minLength: 4)
+                    Text(DateFmt.compactList(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
+                        .font(.system(size: 10.5).monospacedDigit())
+                        .foregroundStyle(DS.ink5)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 HStack {
-                    Text(chat.lastText).font(DS.sub).foregroundStyle(DS.ink4).lineLimit(1)
-                    Spacer(minLength: 2)
+                    Text(chat.lastText)
+                        .font(DS.sub)
+                        .foregroundStyle(DS.ink4)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
                     if chat.unread > 0 {
                         Text(chat.unread > 99 ? "99+" : "\(chat.unread)")
                             .font(.system(size: 10, weight: .semibold).monospacedDigit())
@@ -171,17 +163,13 @@ struct ChatTranscriptView: View {
     var chat: String
     @State private var messages: [LensMessage] = []
     @State private var exhausted = false
-    @State private var recalledOnly = false
     @State private var viewingContext = false
     @State private var highlightedID: Int64?
+    @State private var headerWidth: CGFloat = 600
     @State private var convState: ConvState = .idle
     @State private var showSummary = false
 
     enum ConvState { case idle, loading(Date), done(ConversationAnalysis, Date), failed(String) }
-
-    private var chatRecalledCount: Int {
-        model.recalledChatCounts[chat] ?? 0
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -190,7 +178,7 @@ struct ChatTranscriptView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        if !recalledOnly && !exhausted && !messages.isEmpty {
+                        if !exhausted && !messages.isEmpty {
                             Button("加载更早的消息") { loadOlder() }.buttonStyle(BButtonStyle(kind: .ghost, compact: true))
                                 .frame(maxWidth: .infinity).padding(8)
                         }
@@ -201,24 +189,20 @@ struct ChatTranscriptView: View {
                                     .background(DS.wash, in: Capsule())
                                     .frame(maxWidth: .infinity).padding(.top, 10)
                             }
-                            MessageBubble(message: m, isGroup: chat.hasSuffix("@chatroom"), highlighted: highlightedID == m.id)
-                                .id(m.id)
+                            MessageBubble(
+                                message: m,
+                                isGroup: chat.hasSuffix("@chatroom"),
+                                compact: headerWidth > 0 && headerWidth < 380,
+                                highlighted: highlightedID == m.id
+                            )
+                            .id(m.id)
                         }
                     }
                     .padding(16)
                 }
                 .defaultScrollAnchor(.bottom)
-                .overlay {
-                    if recalledOnly && messages.isEmpty {
-                        EmptyHint(
-                            title: "该会话暂无已拦截的撤回消息",
-                            systemImage: "arrow.uturn.backward.circle",
-                            detail: "ChatMaster 运行期间被撤回的消息会保留原文并显示在这里。"
-                        )
-                    }
-                }
                 .overlay(alignment: .bottom) {
-                    if viewingContext && !recalledOnly {
+                    if viewingContext {
                         Button {
                             viewingContext = false
                             reloadMessages()
@@ -232,7 +216,7 @@ struct ChatTranscriptView: View {
                 .onAppear { focusTargetIfNeeded(proxy: proxy) }
                 .onChange(of: model.focusedMessageID) { _, _ in focusTargetIfNeeded(proxy: proxy) }
                 .onChange(of: messages.last?.id) { _, id in
-                    guard !viewingContext, !recalledOnly, model.focusedMessageID == nil, highlightedID == nil, let id else { return }
+                    guard !viewingContext, model.focusedMessageID == nil, highlightedID == nil, let id else { return }
                     // Lazy rows settle their heights after the first pass; scroll again once laid out.
                     proxy.scrollTo(id, anchor: .bottom)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo(id, anchor: .bottom) }
@@ -247,53 +231,66 @@ struct ChatTranscriptView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        let compact = headerWidth > 0 && headerWidth < 460
+        return HStack(spacing: 10) {
             AvatarView(username: chat, size: 34)
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.displayName(chat)).font(DS.title).foregroundStyle(Theme.chatTitle)
+                Text(model.displayName(chat))
+                    .font(DS.title)
+                    .foregroundStyle(Theme.chatTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if let c = model.store?.contact(chat), !c.remark.isEmpty, !c.nick.isEmpty, c.remark != c.nick {
-                    Text(c.nick).font(DS.sub).foregroundStyle(DS.ink4)
+                    Text(c.nick)
+                        .font(DS.sub)
+                        .foregroundStyle(DS.ink4)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
-            Spacer()
-            Button {
-                withAnimation(DS.ease) {
-                    recalledOnly.toggle()
-                    viewingContext = false
-                }
-                reloadMessages()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: recalledOnly ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle")
-                        .font(.system(size: 11))
-                    Text(chatRecalledCount > 0 ? "撤回 \(chatRecalledCount)" : "仅撤回")
-                        .font(.system(size: 11.5, weight: .medium).monospacedDigit())
-                }
-                .foregroundStyle(recalledOnly ? DS.warning : (chatRecalledCount > 0 ? DS.ink2 : DS.ink4))
-                .padding(.horizontal, 9)
-                .frame(height: 26)
-                .background(recalledOnly ? DS.warning.opacity(0.16) : DS.wash, in: Capsule())
-                .overlay(
-                    Capsule().strokeBorder(recalledOnly ? DS.warning.opacity(0.55) : DS.edge, lineWidth: 0.75)
-                )
-            }
-            .buttonStyle(.plain)
-            .help(recalledOnly ? "返回全部聊天记录" : "只看本会话保留的撤回消息")
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+
             Button { model.setWatched(chat, !model.watchlist.contains(chat)) } label: {
                 Image(systemName: model.watchlist.contains(chat) ? "star.fill" : "star")
                     .foregroundStyle(model.watchlist.contains(chat) ? DS.warning : DS.ink3)
                     .contentTransition(.symbolEffect(.replace))
             }
-            .buttonStyle(IconButtonStyle()).help("关注：新消息自动分析")
-            Button {
-                model.insightChat = chat
-                model.navigate(to: .insight)
-            } label: { Label("关系洞察", systemImage: "person.2.wave.2") }
-                .buttonStyle(BButtonStyle(kind: .secondary))
-            Button { summarize(force: false) } label: { Label("总结对话", systemImage: "sparkles") }
-                .buttonStyle(BButtonStyle(kind: .primary))
+            .buttonStyle(IconButtonStyle(size: 28)).help("关注：新消息自动分析")
+
+            if compact {
+                Button {
+                    model.insightChat = chat
+                    model.navigate(to: .insight)
+                } label: {
+                    Image(systemName: "person.2.wave.2")
+                }
+                .buttonStyle(IconButtonStyle(size: 28))
+                .help("关系洞察")
+
+                Button { summarize(force: false) } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(DS.onSlab)
+                        .frame(width: 28, height: 28)
+                        .background(DS.slab, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("总结对话")
+            } else {
+                Button {
+                    model.insightChat = chat
+                    model.navigate(to: .insight)
+                } label: { Label("关系洞察", systemImage: "person.2.wave.2") }
+                    .buttonStyle(BButtonStyle(kind: .secondary, compact: true))
+                    .fixedSize()
+                Button { summarize(force: false) } label: { Label("总结对话", systemImage: "sparkles") }
+                    .buttonStyle(BButtonStyle(kind: .primary, compact: true))
+                    .fixedSize()
+            }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { headerWidth = $0 }
     }
 
     @ViewBuilder private var summarySheet: some View {
@@ -345,11 +342,7 @@ struct ChatTranscriptView: View {
 
     private func reloadMessages() {
         guard let store = model.store else { return }
-        if recalledOnly {
-            let recalled = store.recalledMessages(chat: chat, limit: 300)
-            messages = recalled
-            exhausted = true
-        } else if !viewingContext {
+        if !viewingContext {
             let fresh = store.messages(chat: chat, limit: max(150, min(messages.count, 1000)))
             if fresh.map(\.id) != messages.map(\.id) || fresh.map(\.recalledAt) != messages.map(\.recalledAt) {
                 messages = fresh
@@ -367,9 +360,6 @@ struct ChatTranscriptView: View {
               let target = store.message(id: targetID),
               target.chat == chat else {
             return
-        }
-        if recalledOnly && !target.isRecalled {
-            recalledOnly = false
         }
         if !messages.contains(where: { $0.id == targetID }) {
             let tail = store.messages(chat: chat, limit: 150)
@@ -410,6 +400,7 @@ struct MessageBubble: View {
     @EnvironmentObject var model: AppModel
     var message: LensMessage
     var isGroup: Bool
+    var compact = false
     var highlighted = false
     @State private var hover = false
 
@@ -417,13 +408,18 @@ struct MessageBubble: View {
         if message.isSystem {
             Text(message.text).font(DS.micro).foregroundStyle(DS.ink5).frame(maxWidth: .infinity).padding(.vertical, 2)
         } else {
+            let sideSpacer: CGFloat = compact ? 24 : 70
             HStack(alignment: .top, spacing: 8) {
-                if message.isSelf { Spacer(minLength: 70) } else {
+                if message.isSelf { Spacer(minLength: sideSpacer) } else {
                     AvatarView(username: message.sender ?? message.chat, size: 30)
                 }
                 VStack(alignment: message.isSelf ? .trailing : .leading, spacing: 3) {
                     if isGroup && !message.isSelf {
-                        Text(model.senderLabel(message)).font(DS.micro).foregroundStyle(DS.ink5)
+                        Text(model.senderLabel(message))
+                            .font(DS.micro)
+                            .foregroundStyle(DS.ink5)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     if message.isRecalled { RecallChip(message: message) }
                     HStack(alignment: .bottom, spacing: 6) {
@@ -455,7 +451,7 @@ struct MessageBubble: View {
                         if !message.isSelf { analyzeButton }
                     }
                 }
-                if !message.isSelf { Spacer(minLength: 70) }
+                if !message.isSelf { Spacer(minLength: sideSpacer) }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, highlighted ? 4 : 0)

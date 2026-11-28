@@ -57,7 +57,7 @@ struct SearchOverlayView: View {
             statusStrip
             resultsBody
         }
-        .frame(minWidth: 420, idealWidth: 560, maxWidth: 620)
+        .frame(minWidth: 320, idealWidth: 560, maxWidth: 620)
         .frame(maxHeight: 500)
         .fixedSize(horizontal: false, vertical: true)
         .background(DS.card)
@@ -103,7 +103,13 @@ struct SearchOverlayView: View {
                         Button(c.display) { chatScope = c.username }
                     }
                 } label: {
-                    Label(chatScope.map { model.displayName($0) } ?? "全部会话", systemImage: "bubble.left.and.bubble.right")
+                    HStack(spacing: 4) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                        Text(chatScope.map { model.displayName($0) } ?? "全部会话")
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: 160, alignment: .leading)
                 }
                 .menuStyle(.button)
                 .buttonStyle(BButtonStyle(kind: .secondary, compact: true))
@@ -115,6 +121,7 @@ struct SearchOverlayView: View {
                     }
                 } label: {
                     Label(timeRange.title, systemImage: "calendar")
+                        .lineLimit(1)
                 }
                 .menuStyle(.button)
                 .buttonStyle(BButtonStyle(kind: .secondary, compact: true))
@@ -125,6 +132,7 @@ struct SearchOverlayView: View {
                 if hasActiveFilter || !trimmedQuery.isEmpty {
                     Button("重置") { resetFilters() }
                         .buttonStyle(BButtonStyle(kind: .ghost, compact: true))
+                        .fixedSize()
                 }
 
                 Button(action: close) {
@@ -136,7 +144,7 @@ struct SearchOverlayView: View {
                 .help("关闭搜索 (Esc)")
             }
 
-            HStack(spacing: 6) {
+            FlowLayout(spacing: 6) {
                 FilterTogglePill(
                     title: "仅撤回",
                     systemImage: "arrow.uturn.backward.circle",
@@ -145,8 +153,6 @@ struct SearchOverlayView: View {
                 ) {
                     recalledOnly.toggle()
                 }
-
-                pillDivider
 
                 FilterTogglePill(
                     title: "私聊",
@@ -163,8 +169,6 @@ struct SearchOverlayView: View {
                     chatKind = chatKind == .group ? nil : .group
                 }
 
-                pillDivider
-
                 FilterTogglePill(
                     title: "我发出",
                     active: sender == .mine,
@@ -180,15 +184,10 @@ struct SearchOverlayView: View {
                     sender = sender == .others ? .all : .others
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-    }
-
-    private var pillDivider: some View {
-        Rectangle()
-            .fill(DS.edge)
-            .frame(width: 1, height: 12)
     }
 
     private var statusStrip: some View {

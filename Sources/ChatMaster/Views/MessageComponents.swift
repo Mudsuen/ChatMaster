@@ -16,10 +16,18 @@ struct MessageRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     if showChat {
-                        Text(model.displayName(message.chat)).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.chatTitle).lineLimit(1)
+                        Text(model.displayName(message.chat))
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(Theme.chatTitle)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     if message.chat.hasSuffix("@chatroom") || !showChat || message.isSelf {
-                        Text(model.senderLabel(message)).font(DS.sub).foregroundStyle(DS.ink4).lineLimit(1)
+                        Text(model.senderLabel(message))
+                            .font(DS.sub)
+                            .foregroundStyle(DS.ink4)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Spacer(minLength: 4)
                     if message.isRecalled { RecallChip(message: message) }
@@ -27,10 +35,16 @@ struct MessageRow: View {
                         Text("\(a.emoji) \(a.emotion)").font(DS.micro).foregroundStyle(Theme.valence(a.valence))
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Theme.valence(a.valence).opacity(0.12), in: Capsule())
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     } else if model.analysisState(message.id)?.isLoading == true {
                         ThinkingOrb(size: 14)
                     }
-                    Text(Fmt.smart(message.date)).font(DS.micro.monospacedDigit()).foregroundStyle(DS.ink5)
+                    Text(Fmt.smart(message.date))
+                        .font(DS.micro.monospacedDigit())
+                        .foregroundStyle(DS.ink5)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 HStack(alignment: .top, spacing: 7) {
                     if message.isTextual { SentimentDot(value: message.sentiment).padding(.top, 6) }

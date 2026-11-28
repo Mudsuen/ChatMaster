@@ -521,9 +521,11 @@ private struct MenuBarChatRow: View {
                             .foregroundStyle(Theme.chatTitle)
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        Text(Fmt.smart(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
+                        Text(DateFmt.compactList(Date(timeIntervalSince1970: TimeInterval(chat.lastTs))))
                             .font(.system(size: 10.5).monospacedDigit())
                             .foregroundStyle(DS.ink5)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     HStack(spacing: 6) {
                         Text(chat.lastText.isEmpty ? "…" : chat.lastText)

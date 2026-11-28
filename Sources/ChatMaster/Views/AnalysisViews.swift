@@ -12,7 +12,7 @@ struct MessageAnalysisCard: View {
         VStack(alignment: .leading, spacing: compact ? 12 : 16) {
             header
             HStack(spacing: 10) {
-                Text("强度").font(DS.micro).foregroundStyle(DS.ink4)
+                Text("强度").font(DS.micro).foregroundStyle(DS.ink4).lineLimit(1)
                 IntensityDots(value: analysis.intensity, color: Theme.valence(analysis.valence))
                 Spacer(minLength: 4)
                 if analysis.needsReply {
@@ -20,7 +20,11 @@ struct MessageAnalysisCard: View {
                 } else {
                     Chip(text: "无需回复")
                 }
-                Text("置信 \(Int(analysis.confidence * 100))%").font(DS.micro.monospacedDigit()).foregroundStyle(DS.ink5)
+                Text("置信 \(Int(analysis.confidence * 100))%")
+                    .font(DS.micro.monospacedDigit())
+                    .foregroundStyle(DS.ink5)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             if !analysis.subtext.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
@@ -78,7 +82,7 @@ struct MessageAnalysisCard: View {
                     .foregroundStyle(DS.ink)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if !analysis.secondaryEmotions.isEmpty {
-                    HStack(spacing: 4) {
+                    FlowLayout(spacing: 4) {
                         ForEach(analysis.secondaryEmotions.prefix(3), id: \.self) { Chip(text: $0) }
                     }
                 }
@@ -211,6 +215,7 @@ struct ConversationAnalysisCard: View {
 
 struct RelationshipReportCard: View {
     var report: RelationshipReport
+    @State private var width: CGFloat = 600
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -231,9 +236,16 @@ struct RelationshipReportCard: View {
                 row("对方", report.theirStyle)
                 row("我", report.myStyle)
             }
-            HStack(alignment: .top, spacing: 16) {
-                BulletList(title: "亮点", icon: "sparkles", items: report.strengths, color: DS.ok)
-                BulletList(title: "摩擦", icon: "bolt", items: report.frictions, color: DS.warning)
+            if width > 0 && width < 420 {
+                VStack(alignment: .leading, spacing: 14) {
+                    BulletList(title: "亮点", icon: "sparkles", items: report.strengths, color: DS.ok)
+                    BulletList(title: "摩擦", icon: "bolt", items: report.frictions, color: DS.warning)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    BulletList(title: "亮点", icon: "sparkles", items: report.strengths, color: DS.ok)
+                    BulletList(title: "摩擦", icon: "bolt", items: report.frictions, color: DS.warning)
+                }
             }
             if !report.suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -243,11 +255,12 @@ struct RelationshipReportCard: View {
             }
         }
         .textSelection(.enabled)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
     private func row(_ k: String, _ v: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Text(k).font(DS.micro).foregroundStyle(DS.ink4).frame(width: 30, alignment: .leading).padding(.top, 2)
+            Text(k).font(DS.micro).foregroundStyle(DS.ink4).lineLimit(1).frame(width: 30, alignment: .leading).padding(.top, 2)
             Text(v).font(DS.body).foregroundStyle(DS.ink).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

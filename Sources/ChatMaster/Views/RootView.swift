@@ -7,12 +7,21 @@ struct RootView: View {
     @EnvironmentObject var model: AppModel
     @State private var isSidebarVisible = true
     @State private var showInspector = true
+    @State private var topBarWidth: CGFloat = 900
     @FocusState private var searchFocused: Bool
 
     private let panelCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.2)
 
     private var inspectorVisible: Bool {
-        showInspector && model.section.supportsInspector
+        guard showInspector && model.section.supportsInspector else { return false }
+        if model.inspected == nil && topBarWidth > 0 && topBarWidth < 680 {
+            return false
+        }
+        return true
+    }
+
+    private var inspectorWidth: CGFloat {
+        (topBarWidth > 0 && topBarWidth < 760) ? 236 : 280
     }
 
     var body: some View {
@@ -57,7 +66,7 @@ struct RootView: View {
                             if inspectorVisible {
                                 Rectangle().fill(DS.edge).frame(width: 1)
                                 InspectorView()
-                                    .frame(width: 280)
+                                    .frame(width: inspectorWidth)
                                     .frame(maxHeight: .infinity)
                                     .background(DS.bg)
                                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -122,24 +131,59 @@ struct RootView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        let hideSub = topBarWidth > 0 && topBarWidth < 560
+        let iconSearch = topBarWidth > 0 && topBarWidth < 500 && !model.isSearchOpen && !searchFocused
+        return HStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(topTitle)
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(Theme.chatTitle)
                     .lineLimit(1)
-                if let sub = topSubtitle {
+                    .truncationMode(.tail)
+                if hasSyncIssue {
+                    Button { model.syncNow() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10.5))
+                            if !hideSub {
+                                Text(syncIssueLabel)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .foregroundStyle(DS.warning)
+                        .padding(.horizontal, hideSub ? 6 : 8)
+                        .padding(.vertical, 3)
+                        .background(DS.warning.opacity(0.14), in: Capsule())
+                        .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .help(syncIssueDetail)
+                } else if !hideSub, let sub = topSubtitle {
                     Text(sub)
-                        .font(.system(size: 11.5))
+                        .font(.system(size: 11.5).monospacedDigit())
                         .foregroundStyle(DS.ink4)
                         .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .padding(.leading, isSidebarVisible ? 16 : 162)
 
             Spacer(minLength: 8)
 
-            globalSearchField
+            if iconSearch {
+                Button {
+                    withAnimation(panelCurve) { model.isSearchOpen = true }
+                    searchFocused = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(DS.ink3)
+                }
+                .buttonStyle(IconButtonStyle(size: 26))
+                .help("搜索聊天记录 (⌘K)")
+            } else {
+                globalSearchField
+            }
 
             if model.section == .dashboard {
                 BSegmented(
@@ -147,6 +191,7 @@ struct RootView: View {
                     options: AppModel.DashboardPeriod.allCases.map { ($0, $0.title) },
                     compact: true
                 )
+                .fixedSize()
             }
 
             if model.section.supportsInspector {
@@ -163,6 +208,7 @@ struct RootView: View {
         .padding(.trailing, 14)
         .frame(height: 40)
         .background(WindowDragArea())
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { topBarWidth = $0 }
     }
 
     private var globalSearchField: some View {
@@ -193,7 +239,7 @@ struct RootView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 26)
-        .frame(minWidth: 150, idealWidth: 210, maxWidth: 250)
+        .frame(minWidth: 130, idealWidth: 200, maxWidth: 240)
         .background(DS.wash, in: Capsule())
         .overlay(
             Capsule().strokeBorder(active ? DS.pick.opacity(0.65) : DS.edge, lineWidth: active ? 1.25 : 0.75)
@@ -215,11 +261,28 @@ struct RootView: View {
         return model.section.title
     }
 
+    private var hasSyncIssue: Bool {
+        !model.syncErrors.isEmpty || !model.missingKeys.isEmpty
+    }
+
+    private var syncIssueLabel: String {
+        !model.missingKeys.isEmpty ? "缺少密钥" : "同步异常"
+    }
+
+    private var syncIssueDetail: String {
+        var lines: [String] = []
+        if !model.missingKeys.isEmpty {
+            lines.append("缺少密钥：\(model.missingKeys.joined(separator: ", "))")
+        }
+        lines.append(contentsOf: model.syncErrors.prefix(2))
+        lines.append("点击立即重试同步")
+        return lines.joined(separator: "\n")
+    }
+
     private var topSubtitle: String? {
         switch model.section {
         case .dashboard:
-            guard let ts = model.dashboard?.stats.firstTs, ts > 0 else { return nil }
-            return "始于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(ts))))"
+            return "更新于 \(Fmt.time.string(from: model.lastSync ?? Date()))"
         default:
             return nil
         }
@@ -229,7 +292,7 @@ struct RootView: View {
         switch model.section {
         case .dashboard: DashboardView()
         case .chats: ChatsView()
-        case .pending: PendingView()
+        case .ai: AIAnalysisView()
         case .insight: InsightView()
         case .briefing: BriefingView()
         }
@@ -336,7 +399,9 @@ private struct WindowDragArea: NSViewRepresentable {
 /// Compact left navigation sidebar starting cleanly below the traffic lights (no redundant brand header).
 struct CompactSidebar: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.openSettings) private var openSettings
     @State private var hovered: AppSection?
+    @State private var settingsHover = false
     var topInset: CGFloat = 42
 
     var body: some View {
@@ -346,7 +411,7 @@ struct CompactSidebar: View {
             }
 
             Spacer(minLength: 8)
-            SyncFooter()
+            settingsRow
         }
         .padding(.top, topInset)
         .padding(.horizontal, 8)
@@ -355,6 +420,37 @@ struct CompactSidebar: View {
         .background(DS.sidebar.overlay(alignment: .top) {
             WindowDragArea().frame(height: topInset)
         })
+    }
+
+    private var settingsRow: some View {
+        Button {
+            openSettings()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(settingsHover ? DS.ink : DS.ink4)
+                    .frame(width: 16)
+                Text("设置")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(settingsHover ? Theme.chatTitle : DS.ink3)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 29)
+            .background {
+                if settingsHover {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DS.wash)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { settingsHover = $0 }
+        .animation(DS.ease, value: settingsHover)
+        .help("打开设置 (⌘,)")
     }
 
     private func navRow(_ item: AppSection, index: Int) -> some View {
@@ -431,43 +527,6 @@ struct ImportingView: View {
     }
 }
 
-struct SyncFooter: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                PulseDot(color: model.syncErrors.isEmpty ? DS.ok : DS.warning, size: 5)
-                Text(model.syncErrors.isEmpty ? "同步中" : "同步异常")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(DS.ink2)
-                Spacer(minLength: 4)
-                Button { model.syncNow() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(IconButtonStyle(size: 20))
-                    .help("立即同步（⌘R）")
-            }
-            if let t = model.lastSync {
-                Text("\(Fmt.count(model.totalIndexed)) 条 · \(Fmt.time.string(from: t))")
-                    .font(.system(size: 10.5).monospacedDigit())
-                    .foregroundStyle(DS.ink5)
-                    .lineLimit(1)
-            }
-            if !model.missingKeys.isEmpty {
-                Text("缺少密钥：\(model.missingKeys.joined(separator: ", "))")
-                    .font(DS.micro).foregroundStyle(DS.warning).lineLimit(2)
-                    .help("请先更新本地已解密数据源配置（all_keys.json）以补齐新数据库密钥")
-            }
-            ForEach(model.syncErrors.prefix(2), id: \.self) { e in
-                Text(e).font(DS.micro).foregroundStyle(DS.warning).lineLimit(2).help(e)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .background(DS.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.edge, lineWidth: 1))
-    }
-}
-
 /// Right-hand panel: the inspected message with context and its analysis.
 struct InspectorView: View {
     @EnvironmentObject var model: AppModel
@@ -479,10 +538,18 @@ struct InspectorView: View {
                     HStack(spacing: 10) {
                         AvatarView(username: m.isSelf ? (model.store?.selfUsername ?? "") : (m.sender ?? m.chat), size: 38)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(model.senderLabel(m)).font(DS.title).foregroundStyle(DS.ink)
-                            Text("\(model.displayName(m.chat)) · \(Fmt.smart(m.date))").font(DS.sub).foregroundStyle(DS.ink4)
+                            Text(model.senderLabel(m))
+                                .font(DS.title)
+                                .foregroundStyle(DS.ink)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Text("\(model.displayName(m.chat)) · \(Fmt.smart(m.date))")
+                                .font(DS.sub)
+                                .foregroundStyle(DS.ink4)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
-                        Spacer()
+                        Spacer(minLength: 4)
                         Button { model.openChat(m.chat, focusMessage: m) } label: { Image(systemName: "arrow.up.right") }
                             .buttonStyle(IconButtonStyle()).help("打开会话")
                     }

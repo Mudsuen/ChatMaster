@@ -5,6 +5,7 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject var model: AppModel
     @State private var range: Range = .day
+    @State private var viewWidth: CGFloat = 900
     @State private var selectedSlotKey: HeatSlotKey?
     @State private var slotSummary: HeatmapSlotSummary?
     @State private var loadingSlot = false
@@ -16,49 +17,27 @@ struct DashboardView: View {
     }
 
     private var animateOnAppear: Bool { !model.dashboardAnimatedOnce }
+    private var compact: Bool { viewWidth > 0 && viewWidth < 600 }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 kpiStrip
                 volumeCard
-                HStack(alignment: .top, spacing: 10) {
-                    Card(padding: 14) {
+                let stackSecondary = viewWidth > 0 && viewWidth < 640
+                Group {
+                    if stackSecondary {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionTitle(title: "活跃时段", subtitle: "近一年 · 星期 × 小时 · 点击查看对话")
-                            InteractiveHeatGrid(
-                                cells: snap.heat.map { MUHeatCell(weekday: $0.weekday, hour: $0.hour, count: $0.count) },
-                                selected: selectedSlotKey
-                            ) { w, h in
-                                openHeatmapSlot(weekday: w, hour: h)
-                            }
+                            heatmapCard
+                            compositionCard
+                        }
+                    } else {
+                        HStack(alignment: .top, spacing: 10) {
+                            heatmapCard
+                            compositionCard
+                                .frame(maxWidth: 320)
                         }
                     }
-                    .popover(item: $selectedSlotKey, arrowEdge: .trailing) { key in
-                        HeatSlotPopover(
-                            key: key,
-                            summary: slotSummary,
-                            loading: loadingSlot,
-                            onClose: { selectedSlotKey = nil }
-                        )
-                        .environmentObject(model)
-                    }
-
-                    Card(padding: 14) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionTitle(title: "消息构成", subtitle: "每点 0.5% · 指向查看")
-                            if !snap.kinds.isEmpty {
-                                CompactDotField(
-                                    items: snap.kinds.map { MUSegmentItem(label: $0.kind, count: $0.count) },
-                                    cols: 25,
-                                    rows: 8,
-                                    caption: "条消息，近一年",
-                                    animate: animateOnAppear
-                                )
-                            }
-                        }
-                    }
-                    .frame(maxWidth: 320)
                 }
                 Card(padding: 14) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -73,6 +52,7 @@ struct DashboardView: View {
                                         rank: i + 1,
                                         item: c,
                                         maxCount: snap.top.first?.count ?? 1,
+                                        compact: compact,
                                         animate: animateOnAppear
                                     )
                                 }
@@ -86,6 +66,7 @@ struct DashboardView: View {
             .padding(.top, 12)
             .padding(.bottom, 18)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
         .defaultScrollAnchor(.top)
         .navigationTitle("")
         .task(id: model.revision / 20) { model.loadDashboard() }
@@ -94,6 +75,46 @@ struct DashboardView: View {
             if ready && !model.dashboardAnimatedOnce {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     model.dashboardAnimatedOnce = true
+                }
+            }
+        }
+    }
+
+    private var heatmapCard: some View {
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(title: "活跃时段", subtitle: compact ? "星期 × 小时" : "近一年 · 星期 × 小时 · 点击查看对话")
+                InteractiveHeatGrid(
+                    cells: snap.heat.map { MUHeatCell(weekday: $0.weekday, hour: $0.hour, count: $0.count) },
+                    selected: selectedSlotKey
+                ) { w, h in
+                    openHeatmapSlot(weekday: w, hour: h)
+                }
+            }
+        }
+        .popover(item: $selectedSlotKey, arrowEdge: .trailing) { key in
+            HeatSlotPopover(
+                key: key,
+                summary: slotSummary,
+                loading: loadingSlot,
+                onClose: { selectedSlotKey = nil }
+            )
+            .environmentObject(model)
+        }
+    }
+
+    private var compositionCard: some View {
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(title: "消息构成", subtitle: "每点 0.5% · 指向查看")
+                if !snap.kinds.isEmpty {
+                    CompactDotField(
+                        items: snap.kinds.map { MUSegmentItem(label: $0.kind, count: $0.count) },
+                        cols: 25,
+                        rows: 8,
+                        caption: "条消息，近一年",
+                        animate: animateOnAppear
+                    )
                 }
             }
         }
@@ -110,39 +131,36 @@ struct DashboardView: View {
             }
         }()
         let shareText = s.total > 0 ? "\(Int(Double(s.sentByMe) / Double(s.total) * 100))%" : "—"
-        let chatNote = model.dashboardPeriod == .all && (s.contacts > 0 || s.groups > 0)
+        let chatNote = !compact && model.dashboardPeriod == .all && (s.contacts > 0 || s.groups > 0)
             ? "\(s.contacts) 好友 · \(s.groups) 群"
             : nil
+        let sentNote = !compact && s.sentByMe > 0 ? "发出 \(Fmt.count(s.sentByMe))" : nil
 
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
             MetricTile(title: msgLabel, value: Fmt.grouped(Double(s.total)), icon: "text.bubble.fill", tint: DS.warning)
             MetricTile(title: "活跃会话", value: Fmt.grouped(Double(s.activeChats)), icon: "bubble.left.and.bubble.right.fill",
                        tint: DS.ok, note: chatNote)
-            MetricTile(title: "我发出占比", value: shareText, icon: "paperplane.fill", tint: Color(muHex: 0x14B8A6))
-            Button {
-                withAnimation(DS.ease) { model.navigate(to: .pending) }
-            } label: {
-                MetricTile(title: "待回复", value: "\(snap.pendingCount)", icon: "tray.full.fill",
-                           tint: snap.pendingCount > 0 ? DS.error : DS.pick,
-                           note: snap.pendingCount > 0 ? "点击处理" : "已清空")
-            }
-            .buttonStyle(.plain)
+            MetricTile(title: "我发出占比", value: shareText, icon: "paperplane.fill", tint: Color(muHex: 0x14B8A6), note: sentNote)
         }
     }
 
     private var volumeCard: some View {
-        Card(padding: 14) {
+        let hideLegend = viewWidth > 0 && viewWidth < 520
+        return Card(padding: 14) {
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(
                     title: "消息量",
                     subtitle: range == .day ? "近 90 天，每天" : "近 26 周，每周",
                     trailing: AnyView(
                         HStack(spacing: 12) {
-                            HStack(spacing: 10) {
-                                legend(DS.ink, "发出")
-                                legend(DS.ink.opacity(0.22), "收到")
+                            if !hideLegend {
+                                HStack(spacing: 10) {
+                                    legend(DS.ink, "发出")
+                                    legend(DS.ink.opacity(0.22), "收到")
+                                }
                             }
                             BSegmented(selection: $range, options: [(.day, "日"), (.week, "周")], compact: true)
+                                .fixedSize()
                         }
                     )
                 )
@@ -519,8 +537,7 @@ private struct HeatSlotPopover: View {
                         ForEach(filteredMessages) { m in
                             Button {
                                 onClose()
-                                model.openChat(m.chat)
-                                model.inspect(m, analyze: false)
+                                model.openChat(m.chat, focusMessage: m)
                             } label: {
                                 HStack(alignment: .top, spacing: 8) {
                                     AvatarView(username: m.chat, size: 26)
@@ -540,6 +557,8 @@ private struct HeatSlotPopover: View {
                                             Text(Fmt.dayTime.string(from: m.date))
                                                 .font(.system(size: 10).monospacedDigit())
                                                 .foregroundStyle(DS.ink5)
+                                                .lineLimit(1)
+                                                .fixedSize(horizontal: true, vertical: false)
                                         }
                                         Text(m.text)
                                             .font(.system(size: 12))
@@ -666,14 +685,16 @@ struct TopChatRow: View {
     var rank: Int = 0
     var item: ChatCount
     var maxCount: Int
+    var compact = false
     var animate = true
     @State private var hover = false
     @State private var grown: Bool
 
-    init(rank: Int = 0, item: ChatCount, maxCount: Int, animate: Bool = true) {
+    init(rank: Int = 0, item: ChatCount, maxCount: Int, compact: Bool = false, animate: Bool = true) {
         self.rank = rank
         self.item = item
         self.maxCount = maxCount
+        self.compact = compact
         self.animate = animate
         _grown = State(initialValue: !animate)
     }
@@ -684,7 +705,12 @@ struct TopChatRow: View {
                 Text("\(rank)").font(DS.micro.monospacedDigit()).foregroundStyle(DS.ink5).frame(width: 16)
             }
             AvatarView(username: item.chat, size: 24)
-            Text(item.display).font(DS.body).foregroundStyle(Theme.chatTitle).lineLimit(1).frame(width: 150, alignment: .leading)
+            Text(item.display)
+                .font(DS.body)
+                .foregroundStyle(Theme.chatTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: compact ? 92 : 140, alignment: .leading)
             GeometryReader { geo in
                 let w = geo.size.width * CGFloat(item.count) / CGFloat(max(maxCount, 1)) * (grown ? 1 : 0)
                 ZStack(alignment: .leading) {
@@ -697,6 +723,8 @@ struct TopChatRow: View {
             Text(Fmt.grouped(Double(item.count)))
                 .font(.system(size: 12.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(DS.ink3)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .frame(width: 56, alignment: .trailing)
         }
         .padding(.horizontal, 6)

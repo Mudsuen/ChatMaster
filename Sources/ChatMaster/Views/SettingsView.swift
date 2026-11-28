@@ -29,6 +29,21 @@ struct SettingsView: View {
                     }
                     LabeledContent("已索引", value: "\(model.totalIndexed) 条")
                     LabeledContent("本地索引", value: LensPaths.indexDB.path)
+                    LabeledContent("同步状态") {
+                        HStack(spacing: 8) {
+                            if model.syncErrors.isEmpty {
+                                Text(model.lastSync.map { "正常 · \(Fmt.time.string(from: $0))" } ?? "等待首次同步")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(model.syncErrors.first ?? "同步异常")
+                                    .foregroundStyle(.orange)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            Button("立即同步") { model.syncNow() }
+                                .controlSize(.small)
+                        }
+                    }
                     if !model.missingKeys.isEmpty {
                         Text("这些新数据库还没有配置密钥：\(model.missingKeys.joined(separator: "、"))。请先更新本地数据源配置（all_keys.json）。")
                             .foregroundStyle(.orange)

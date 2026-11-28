@@ -104,6 +104,12 @@ final class StoreTests: XCTestCase {
         // Re-ingesting the same rows is idempotent.
         try store.ingest(rows, src: "message/message_0.db", tbl: "abc", watermark: 3)
         XCTAssertEqual(store.totalMessages(), 3)
+
+        store.saveAnalysis(key: "msg:1", kind: "msg", target: "wxid_a", model: "m1", json: #"{"emotion":"开心"}"#)
+        store.saveAnalysis(key: "conv:wxid_a:1:80", kind: "conv", target: "wxid_a", model: "m1", json: #"{"summary":"ok"}"#)
+        XCTAssertEqual(store.recentAnalyses(kinds: nil).count, 2)
+        XCTAssertEqual(store.recentAnalyses(kinds: ["msg", "text"]).map(\.key), ["msg:1"])
+        XCTAssertEqual(store.recentAnalyses(kinds: ["conv"]).map(\.key), ["conv:wxid_a:1:80"])
     }
 }
 

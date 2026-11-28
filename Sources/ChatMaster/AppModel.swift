@@ -6,14 +6,14 @@ import SwiftUI
 import UserNotifications
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case dashboard, chats, pending, insight, briefing
+    case dashboard, chats, ai, insight, briefing
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "概览"
         case .chats: return "会话"
-        case .pending: return "待回复"
+        case .ai: return "AI 分析"
         case .insight: return "关系洞察"
         case .briefing: return "每日简报"
         }
@@ -22,7 +22,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "square.grid.2x2"
         case .chats: return "bubble.left.and.bubble.right"
-        case .pending: return "tray.full"
+        case .ai: return "sparkles"
         case .insight: return "person.2.wave.2"
         case .briefing: return "newspaper"
         }
@@ -30,10 +30,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 
     /// Sections where individual messages can be inspected/analyzed in the trailing panel.
     var supportsInspector: Bool {
-        switch self {
-        case .chats, .pending: return true
-        case .dashboard, .insight, .briefing: return false
-        }
+        self == .chats
     }
 }
 
@@ -117,7 +114,6 @@ final class AppModel: ObservableObject {
 
     struct DashboardSnapshot {
         var stats = PeriodStats()
-        var pendingCount = 0
         var daily: [DayCount] = []
         var heat: [HeatCell] = []
         var kinds: [KindCount] = []
@@ -163,7 +159,6 @@ final class AppModel: ObservableObject {
     @Published var watchlist: Set<String> = []
     @Published var agyModels: [(String, String)] = []
     @Published var totalIndexed = 0
-    @Published var recalledChatCounts: [String: Int] = [:]
 
     private(set) var store: LensStore?
     private(set) var source: WeChatSource?
@@ -242,6 +237,12 @@ final class AppModel: ObservableObject {
                         self.searchTrigger += 1
                     }
                 case "popup": CompanionController.shared.openPopup(text: parts[1], source: .clipboard, near: NSEvent.mouseLocation)
+                case "size":
+                    let dims = parts[1].split(separator: "x").compactMap { Double($0) }
+                    if dims.count == 2,
+                       let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
+                        w.setContentSize(NSSize(width: dims[0], height: dims[1]))
+                    }
                 case "diag":
                     let c = CompanionController.shared
                     let info = "ax=\(AXIsProcessTrusted()) frame=\(String(describing: c.tracker.frame)) front=\(c.tracker.isFrontmost) sidebarPref=\(Prefs.d.bool(forKey: Prefs.sidebar)) screen=\(CGPreflightScreenCaptureAccess()) chat=\(c.currentChat ?? "-")"
@@ -367,7 +368,6 @@ final class AppModel: ObservableObject {
         menuBarChats = store.menuBarChats(limit: 40)
         recomputeMenuBarState()
         totalIndexed = store.totalMessages()
-        recalledChatCounts = store.recalledChatCounts()
         revision += 1
     }
 
@@ -380,13 +380,12 @@ final class AppModel: ObservableObject {
         let rev = revision
         Task.detached(priority: .userInitiated) { [weak self] in
             let stats = store.periodStats(days: period.days)
-            let pendingCount = store.pendingReplies().count
             let daily = store.dailyCounts(days: 182)
             let heat = store.heatmap()
             let kinds = store.kindCounts()
             let top = store.topChats(days: period.days ?? 3650, limit: 10)
             let snap = DashboardSnapshot(
-                stats: stats, pendingCount: pendingCount, daily: daily, heat: heat,
+                stats: stats, daily: daily, heat: heat,
                 kinds: kinds, top: top, period: period, loadedRevision: rev
             )
             await MainActor.run { [weak self] in

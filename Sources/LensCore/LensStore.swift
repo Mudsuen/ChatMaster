@@ -4,6 +4,18 @@ public enum SearchSender: String, CaseIterable, Hashable, Sendable {
     case all, mine, others
 }
 
+public struct AnalysisRecord: Identifiable, Hashable, Sendable {
+    public var key: String
+    public var kind: String
+    public var target: String
+    public var model: String
+    public var created: Int64
+    public var json: String
+
+    public var id: String { key }
+    public var createdDate: Date { Date(timeIntervalSince1970: TimeInterval(created)) }
+}
+
 /// Local index: normalized messages + FTS5 (trigram, works for Chinese substrings) + analysis cache.
 /// Contains plaintext chat history; the directory is 700 and files are 600.
 public final class LensStore: @unchecked Sendable {
@@ -493,6 +505,37 @@ public final class LensStore: @unchecked Sendable {
         var out: (String, Int64)?
         try? reader.query("SELECT json, created FROM analyses WHERE kind = ? AND target = ? ORDER BY created DESC LIMIT 1",
                           [.text(kind), .text(target)]) { r in out = (r.text(0) ?? "", r.int(1)) }
+        return out
+    }
+
+    public func recentAnalyses(kinds: [String]? = nil, limit: Int = 100) -> [AnalysisRecord] {
+        var out: [AnalysisRecord] = []
+        var params: [SQLValue] = []
+        let whereClause: String
+        if let kinds, !kinds.isEmpty {
+            let placeholders = Array(repeating: "?", count: kinds.count).joined(separator: ",")
+            whereClause = "WHERE kind IN (\(placeholders))"
+            params.append(contentsOf: kinds.map { .text($0) })
+        } else {
+            whereClause = ""
+        }
+        params.append(.int(Int64(limit)))
+        let sql = """
+            SELECT key, kind, target, model, created, json
+            FROM analyses
+            \(whereClause)
+            ORDER BY created DESC LIMIT ?
+            """
+        try? reader.query(sql, params) { r in
+            out.append(AnalysisRecord(
+                key: r.text(0) ?? "",
+                kind: r.text(1) ?? "",
+                target: r.text(2) ?? "",
+                model: r.text(3) ?? "",
+                created: r.int(4),
+                json: r.text(5) ?? ""
+            ))
+        }
         return out
     }
 

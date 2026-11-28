@@ -19,12 +19,12 @@ Native macOS (SwiftUI + AppKit) companion & analyzer for the owner's own decrypt
 | Area | What it does |
 |---|---|
 | 概览 | totals, period switcher (`今日` / `7 天` / `30 天` / `全部`), 90-day volume, interactive weekday × hour heatmap, top chats |
-| 会话 | chat list + transcript with muted & recalled filters; inline recalled originals; hover/right-click a bubble to analyze; AI conversation summary |
-| 待回复 | chats where the other side is waiting (questions, requests, @mentions, wait time) |
+| 会话 | chat list + transcript with muted filter; inline recalled originals; hover/right-click a bubble to analyze; AI conversation summary |
+| AI 分析 | freeform message/subtext analysis & reply suggestions, quick 80-message conversation summary, and searchable history of cached AI analyses |
 | 关系洞察 | per-contact stats (share, initiations, reply latency, sentiment trend, hours) + AI report |
 | 顶部搜索 | floating top-bar search panel (`⌘K`) with full-text search + chat scope, time range, recalled-only, private/group, and sender filters |
 | 每日简报 | AI digest: highlights, needs-reply, my promises, mood alerts |
-| 防撤回 | WeChat rewrites a recalled row in place into a `revokemsg` system message; the index keeps the original text, records `recalled_at`, displays/filters it directly inside `会话` and top-bar search, and posts a notification. Works only while ChatMaster runs (2 s sync); media keeps its type only |
+| 防撤回 | WeChat rewrites a recalled row in place into a `revokemsg` system message; the index keeps the original text, records `recalled_at`, keeps recalled originals inline in transcripts and filterable via top-bar search, and posts a notification. Works only while ChatMaster runs (2 s sync); media keeps its type only |
 | MenuBar 快捷消息 | shows recent non-muted, non-folded private & group chats with unread badge; inline mini-transcript, AI reply suggestions, and user-triggered direct reply via Accessibility / CGEvent |
 | 微信伴侣 | sidebar docked to the WeChat window, copy-to-analyze bubble, ⌃⌥A OCR capture, ⌃⌥V clipboard, ⌃⌥S toggle sidebar |
 
@@ -60,6 +60,6 @@ and a logged-in `agy` CLI.
 ## Automation hook
 
 `DistributedNotificationCenter` name `com.mudsuen.ChatMaster.navigate`, object one of
-`section:<dashboard|chats|pending|insight|briefing>`, `chat:<username>`,
+`section:<dashboard|chats|ai|insight|briefing>`, `chat:<username>`, `size:<width>x<height>`,
 `search:<open|close|query>`, `inspect:<message id>`, `insight:<username>`, `popup:<text>`, `companion:<username|follow>`.
 Used for local UI verification.
