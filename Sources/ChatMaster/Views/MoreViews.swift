@@ -9,12 +9,17 @@ struct PendingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "待回复", subtitle: "最近 7 天，对方在等你的会话 · \(items.count) 个")
+            HStack {
+                Text("最近 7 天，对方在等你的会话 · \(items.count) 个")
+                    .font(DS.sub).foregroundStyle(DS.ink4)
+                Spacer()
+            }
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: 10) {
                     ForEach(items) { p in PendingCard(item: p) }
                 }
-                .padding(.horizontal, 24).padding(.bottom, 24)
+                .padding(.horizontal, 20).padding(.bottom, 20)
             }
             .overlay { if items.isEmpty { EmptyHint(title: "没有人在等你", systemImage: "checkmark.seal", detail: "对方有提问、请求或在群里 @ 你时会出现在这里。") } }
         }
@@ -248,43 +253,34 @@ private struct PickRow: View {
 
 struct SearchView: View {
     @EnvironmentObject var model: AppModel
-    @State private var query = ""
     @State private var results: [LensMessage] = []
     @State private var chatScope: String?
     @State private var searching = false
-    @FocusState private var focused: Bool
+    @State private var debounceTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("搜索").font(.system(size: 22, weight: .semibold)).tracking(-0.4)
-                HStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        if searching { ThinkingOrb(size: 18) } else {
-                            Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .semibold)).foregroundStyle(DS.ink4)
-                        }
-                        TextField("搜索全部聊天记录（支持中文片段）", text: $query)
-                            .textFieldStyle(.plain).font(.system(size: 16)).focused($focused)
-                            .onSubmit { run() }
-                    }
-                    .padding(.horizontal, 16).frame(height: 46)
-                    .background(DS.card, in: Capsule())
-                    .overlay(Capsule().strokeBorder(focused ? DS.pick.opacity(0.7) : DS.edge, lineWidth: focused ? 2 : 1))
-                    .animation(DS.ease, value: focused)
-                    Menu {
-                        Button("全部会话") { chatScope = nil }
-                        Divider()
-                        ForEach(model.chats.prefix(60)) { c in Button(c.display) { chatScope = c.username } }
-                    } label: {
-                        Label(chatScope.map { model.displayName($0) } ?? "全部会话", systemImage: "line.3.horizontal.decrease")
-                    }
-                    .menuStyle(.button).buttonStyle(BButtonStyle(kind: .secondary)).fixedSize()
-                }
-                if !results.isEmpty {
+            HStack(spacing: 10) {
+                if searching {
+                    ThinkingOrb(size: 14)
+                    Text("搜索中…").font(DS.sub).foregroundStyle(DS.ink4)
+                } else if !results.isEmpty {
                     Text("\(results.count) 条结果 · 单击查看，双击打开会话").font(DS.sub).foregroundStyle(DS.ink4)
+                } else {
+                    Text("在顶部搜索框输入关键词，三个字以上走全文索引")
+                        .font(DS.sub).foregroundStyle(DS.ink4)
                 }
+                Spacer()
+                Menu {
+                    Button("全部会话") { chatScope = nil }
+                    Divider()
+                    ForEach(model.chats.prefix(60)) { c in Button(c.display) { chatScope = c.username } }
+                } label: {
+                    Label(chatScope.map { model.displayName($0) } ?? "全部会话", systemImage: "line.3.horizontal.decrease")
+                }
+                .menuStyle(.button).buttonStyle(BButtonStyle(kind: .secondary, compact: true)).fixedSize()
             }
-            .padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 12)
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(results) { m in
@@ -297,18 +293,32 @@ struct SearchView: View {
             }
             .overlay {
                 if results.isEmpty {
-                    EmptyHint(title: query.isEmpty ? "输入关键词" : "没有结果", systemImage: "text.magnifyingglass",
-                              detail: query.isEmpty ? "三个字以上走全文索引，更短的走模糊匹配" : nil)
+                    EmptyHint(
+                        title: model.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "在顶部输入关键词" : "没有结果",
+                        systemImage: "text.magnifyingglass",
+                        detail: model.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "按 ⌘K 聚焦顶部搜索框，回车立即搜索" : nil
+                    )
                 }
             }
         }
-        .onAppear { focused = true }
+        .onAppear { run() }
+        .onChange(of: model.searchTrigger) { _, _ in run() }
         .onChange(of: chatScope) { _, _ in run() }
+        .onChange(of: model.searchQuery) { _, _ in
+            debounceTask?.cancel()
+            debounceTask = Task {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+                run()
+            }
+        }
     }
 
     private func run() {
         guard let store = model.store else { return }
-        let q = query, scope = chatScope
+        let q = model.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { results = []; searching = false; return }
+        let scope = chatScope
         searching = true
         Task {
             let r = await Task.detached { store.search(q, chat: scope, limit: 400) }.value
@@ -327,16 +337,17 @@ struct BriefingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "每日简报", subtitle: Fmt.day.string(from: day)) {
-                HStack(spacing: 8) {
-                    DatePicker("", selection: $day, in: ...Date(), displayedComponents: .date)
-                        .labelsHidden().datePickerStyle(.field).frame(width: 120)
-                    Button { generate(force: isDone) } label: {
-                        Label(isDone ? "重新生成" : "生成简报", systemImage: "sparkles")
-                    }
-                    .buttonStyle(BButtonStyle(kind: .primary)).disabled(isLoading)
+            HStack(spacing: 8) {
+                Text(Fmt.day.string(from: day)).font(DS.sub).foregroundStyle(DS.ink4)
+                Spacer()
+                DatePicker("", selection: $day, in: ...Date(), displayedComponents: .date)
+                    .labelsHidden().datePickerStyle(.field).frame(width: 120)
+                Button { generate(force: isDone) } label: {
+                    Label(isDone ? "重新生成" : "生成简报", systemImage: "sparkles")
                 }
+                .buttonStyle(BButtonStyle(kind: .primary, compact: true)).disabled(isLoading)
             }
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     switch state {

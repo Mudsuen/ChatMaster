@@ -76,13 +76,10 @@ struct MessageMenu: View {
 
 struct LiveFeedView: View {
     @EnvironmentObject var model: AppModel
-    @State private var filter: Filter = .all
-
-    enum Filter: Hashable { case all, incoming, privateOnly, watched }
 
     private var items: [LensMessage] {
         model.liveFeed.filter { m in
-            switch filter {
+            switch model.liveFilter {
             case .all: return true
             case .incoming: return !m.isSelf
             case .privateOnly: return !m.chat.hasSuffix("@chatroom")
@@ -92,22 +89,19 @@ struct LiveFeedView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            PageHeader(title: "实时", subtitle: model.lastSync.map { "所有会话的最新消息 · 更新于 \(Fmt.time.string(from: $0))" }) {
-                BSegmented(selection: $filter, options: [(.all, "全部"), (.incoming, "收到"), (.privateOnly, "私聊"), (.watched, "关注")])
-            }
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(items) { m in
-                        MessageRow(message: m, selected: model.inspected?.id == m.id)
-                            .onTapGesture { model.inspect(m, analyze: false) }
-                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
-                    }
+        ScrollView {
+            LazyVStack(spacing: 2) {
+                ForEach(items) { m in
+                    MessageRow(message: m, selected: model.inspected?.id == m.id)
+                        .onTapGesture { model.inspect(m, analyze: false) }
+                        .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                 }
-                .padding(.horizontal, 16).padding(.bottom, 20)
-                .animation(DS.spring, value: items.first?.id)
             }
-            .overlay { if items.isEmpty { EmptyHint(title: "暂无消息", systemImage: "tray") } }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
+            .animation(DS.spring, value: items.first?.id)
         }
+        .overlay { if items.isEmpty { EmptyHint(title: "暂无消息", systemImage: "tray") } }
     }
 }

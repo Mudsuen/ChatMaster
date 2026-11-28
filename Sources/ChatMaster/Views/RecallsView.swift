@@ -47,12 +47,14 @@ struct RecallsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PageHeader(title: "防撤回", subtitle: "保留被撤回消息的原文 · 共 \(shown.count) 条") {
-                HStack(spacing: 8) {
-                    FilterField(text: $filter, prompt: "筛选人、群或内容").frame(minWidth: 130, maxWidth: 200)
-                    BSegmented(selection: $scope, options: [(.others, "别人撤回"), (.all, "全部")])
-                }
+            HStack(spacing: 8) {
+                Text("保留被撤回消息的原文 · 共 \(shown.count) 条")
+                    .font(DS.sub).foregroundStyle(DS.ink4)
+                Spacer()
+                FilterField(text: $filter, prompt: "筛选人、群或内容").frame(minWidth: 130, maxWidth: 200)
+                BSegmented(selection: $scope, options: [(.others, "别人撤回"), (.all, "全部")], compact: true)
             }
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
             ScrollView {
                 LazyVStack(spacing: 10) {
                     ForEach(shown) { m in

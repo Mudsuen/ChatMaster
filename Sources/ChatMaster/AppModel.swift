@@ -132,6 +132,14 @@ final class AppModel: ObservableObject {
         var loadedRevision: Int = -1
     }
 
+    enum LiveFeedFilter: Hashable { case all, incoming, privateOnly, watched }
+
+    struct NavEntry: Equatable {
+        var section: AppSection
+        var selectedChat: String?
+        var insightChat: String?
+    }
+
     static let shared = AppModel()
 
     @Published var state: LoadState = .starting
@@ -147,6 +155,13 @@ final class AppModel: ObservableObject {
     @Published var dashboardPeriod: DashboardPeriod = .today
     @Published var dashboard: DashboardSnapshot?
     var dashboardAnimatedOnce = false
+    @Published var liveFilter: LiveFeedFilter = .all
+    @Published var searchQuery = ""
+    @Published var searchTrigger = 0
+    @Published var focusSearchTrigger = 0
+    @Published private(set) var navHistory: [NavEntry] = [NavEntry(section: .dashboard, selectedChat: nil, insightChat: nil)]
+    @Published private(set) var navIndex = 0
+    private var isApplyingHistory = false
     @Published var section: AppSection = .dashboard
     @Published var selectedChat: String?
     @Published var insightChat: String?
@@ -401,6 +416,7 @@ final class AppModel: ObservableObject {
         guard let m = store?.message(id: id) else { return }
         section = .recalls
         inspect(m, analyze: false)
+        recordNavigation()
         showMainWindow()
     }
 
@@ -472,10 +488,58 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var canGoBack: Bool { navIndex > 0 }
+    var canGoForward: Bool { navIndex + 1 < navHistory.count }
+
+    func navigate(to target: AppSection) {
+        section = target
+        recordNavigation()
+    }
+
+    func recordNavigation() {
+        guard !isApplyingHistory else { return }
+        let entry = NavEntry(section: section, selectedChat: selectedChat, insightChat: insightChat)
+        if navHistory[navIndex] == entry { return }
+        if navIndex + 1 < navHistory.count {
+            navHistory.removeSubrange((navIndex + 1)...)
+        }
+        navHistory.append(entry)
+        if navHistory.count > 50 {
+            navHistory.removeFirst(navHistory.count - 50)
+        }
+        navIndex = navHistory.count - 1
+    }
+
+    func goBack() {
+        guard canGoBack else { return }
+        navIndex -= 1
+        applyHistory(navHistory[navIndex])
+    }
+
+    func goForward() {
+        guard canGoForward else { return }
+        navIndex += 1
+        applyHistory(navHistory[navIndex])
+    }
+
+    private func applyHistory(_ entry: NavEntry) {
+        isApplyingHistory = true
+        section = entry.section
+        selectedChat = entry.selectedChat
+        if let ic = entry.insightChat { insightChat = ic }
+        isApplyingHistory = false
+    }
+
+    func submitGlobalSearch() {
+        navigate(to: .search)
+        searchTrigger += 1
+    }
+
     func openChat(_ chat: String) {
         markMenuBarRead(chat)
         selectedChat = chat
         section = .chats
+        recordNavigation()
         NSApp.activate(ignoringOtherApps: true)
         showMainWindow()
     }

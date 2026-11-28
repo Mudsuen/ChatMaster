@@ -1,10 +1,13 @@
+import AppKit
 import LensCore
 import MudsUI
 import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @State private var isSidebarVisible = true
     @State private var showInspector = true
+    @FocusState private var searchFocused: Bool
 
     private let panelCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.2)
 
@@ -13,63 +16,181 @@ struct RootView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            CompactSidebar()
-                .navigationSplitViewColumnWidth(min: 148, ideal: 162, max: 192)
-        } detail: {
+        ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
-                ZStack(alignment: .bottomTrailing) {
-                    Group {
-                        switch model.state {
-                        case .starting:
-                            VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
-                        case .importing(let phase, let frac):
-                            ImportingView(phase: phase, fraction: frac)
-                        case .failed(let msg):
-                            EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
-                        case .ready:
-                            detail.id(model.section)
-                                .transition(.opacity)
+                if isSidebarVisible {
+                    CompactSidebar(topInset: 42)
+                        .frame(width: 166)
+                        .ignoresSafeArea(.container, edges: .top)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    Rectangle()
+                        .fill(DS.edge)
+                        .frame(width: 1)
+                        .ignoresSafeArea(.container, edges: .top)
+                }
+
+                VStack(spacing: 0) {
+                    topBar
+                    Rectangle().fill(DS.edge).frame(height: 1)
+
+                    HStack(spacing: 0) {
+                        ZStack(alignment: .bottomTrailing) {
+                            Group {
+                                switch model.state {
+                                case .starting:
+                                    VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
+                                case .importing(let phase, let frac):
+                                    ImportingView(phase: phase, fraction: frac)
+                                case .failed(let msg):
+                                    EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
+                                case .ready:
+                                    detail.id(model.section)
+                                        .transition(.opacity)
+                                }
+                            }
+                            .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
+                            .background(DS.bg)
+                            .animation(DS.ease, value: model.section)
+                            ToastStackView().padding(16)
+                        }
+                        .clipped()
+
+                        if inspectorVisible {
+                            Rectangle().fill(DS.edge).frame(width: 1)
+                            InspectorView()
+                                .frame(width: 280)
+                                .frame(maxHeight: .infinity)
+                                .background(DS.bg)
+                                .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
-                    .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
-                    .background(DS.bg)
-                    .animation(DS.ease, value: model.section)
-                    ToastStackView().padding(16)
+                    .frame(minWidth: 512, maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .animation(panelCurve, value: inspectorVisible)
                 }
-                .clipped()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DS.bg)
+                .ignoresSafeArea(.container, edges: .top)
+            }
 
-                if inspectorVisible {
-                    Rectangle().fill(DS.edge).frame(width: 1)
-                    InspectorView()
-                        .frame(width: 280)
-                        .frame(maxHeight: .infinity)
-                        .background(DS.bg)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .frame(minWidth: 520, maxWidth: .infinity, minHeight: 460, maxHeight: .infinity)
-            .clipped()
-            .animation(panelCurve, value: inspectorVisible)
+            TopTrafficChrome(
+                isSidebarVisible: $isSidebarVisible.animation(panelCurve),
+                canGoBack: model.canGoBack,
+                canGoForward: model.canGoForward,
+                goBack: { model.goBack() },
+                goForward: { model.goForward() }
+            )
         }
-        .toolbar {
-            if model.section.supportsInspector {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        withAnimation(panelCurve) { showInspector.toggle() }
-                    } label: {
-                        Label("分析面板", systemImage: "sidebar.trailing")
-                    }
-                    .help("显示/隐藏分析面板")
-                }
-            }
-        }
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        .navigationTitle("")
+        .frame(minWidth: 680, minHeight: 460)
+        .background(DS.bg)
         .onChange(of: model.inspected) { _, m in
             if m != nil {
                 withAnimation(panelCurve) { showInspector = true }
             }
+        }
+        .onChange(of: model.focusSearchTrigger) { _, _ in
+            searchFocused = true
+        }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(topTitle)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(Theme.chatTitle)
+                    .lineLimit(1)
+                if let sub = topSubtitle {
+                    Text(sub)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(DS.ink4)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.leading, isSidebarVisible ? 16 : 162)
+
+            Spacer(minLength: 8)
+
+            globalSearchField
+
+            if model.section == .dashboard {
+                BSegmented(
+                    selection: $model.dashboardPeriod,
+                    options: AppModel.DashboardPeriod.allCases.map { ($0, $0.title) },
+                    compact: true
+                )
+            } else if model.section == .live {
+                BSegmented(
+                    selection: $model.liveFilter,
+                    options: [(.all, "全部"), (.incoming, "收到"), (.privateOnly, "私聊"), (.watched, "关注")],
+                    compact: true
+                )
+            }
+
+            if model.section.supportsInspector {
+                Button {
+                    withAnimation(panelCurve) { showInspector.toggle() }
+                } label: {
+                    Image(systemName: "sidebar.trailing")
+                        .foregroundStyle(showInspector ? DS.ink : DS.ink4)
+                }
+                .buttonStyle(IconButtonStyle(size: 26))
+                .help(showInspector ? "隐藏分析面板" : "显示分析面板")
+            }
+        }
+        .padding(.trailing, 14)
+        .frame(height: 40)
+        .background(WindowDragArea())
+    }
+
+    private var globalSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(searchFocused ? DS.pick : DS.ink4)
+            TextField("搜索聊天记录… (⌘K)", text: $model.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($searchFocused)
+                .onSubmit { model.submitGlobalSearch() }
+            if !model.searchQuery.isEmpty {
+                Button {
+                    model.searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.ink5)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .frame(minWidth: 150, idealWidth: 210, maxWidth: 250)
+        .background(DS.wash, in: Capsule())
+        .overlay(
+            Capsule().strokeBorder(searchFocused ? DS.pick.opacity(0.65) : DS.edge, lineWidth: searchFocused ? 1.25 : 0.75)
+        )
+        .animation(DS.ease, value: searchFocused)
+    }
+
+    private var topTitle: String {
+        if model.section == .dashboard {
+            let hour = Calendar.current.component(.hour, from: Date())
+            return hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好"
+        }
+        return model.section.title
+    }
+
+    private var topSubtitle: String? {
+        switch model.section {
+        case .dashboard:
+            guard let ts = model.dashboard?.stats.firstTs, ts > 0 else { return nil }
+            return "始于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(ts))))"
+        case .live:
+            return model.lastSync.map { "更新于 \(Fmt.time.string(from: $0))" }
+        default:
+            return nil
         }
     }
 
@@ -87,24 +208,107 @@ struct RootView: View {
     }
 }
 
-/// Compact left navigation sidebar with subtle hover and selection background highlights.
+/// Sidebar toggle and Back/Forward buttons positioned directly beside the macOS traffic lights.
+private struct TopTrafficChrome: View {
+    @Binding var isSidebarVisible: Bool
+    var canGoBack: Bool
+    var canGoForward: Bool
+    var goBack: () -> Void
+    var goForward: () -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            chromeButton(
+                systemImage: "sidebar.left",
+                help: isSidebarVisible ? "隐藏侧边栏" : "显示侧边栏",
+                isEnabled: true
+            ) {
+                isSidebarVisible.toggle()
+            }
+            chromeButton(
+                systemImage: "chevron.left",
+                help: "返回 (⌘[)",
+                isEnabled: canGoBack,
+                action: goBack
+            )
+            chromeButton(
+                systemImage: "chevron.right",
+                help: "前进 (⌘])",
+                isEnabled: canGoForward,
+                action: goForward
+            )
+        }
+        .padding(.leading, 76)
+        .padding(.top, 7)
+    }
+
+    private func chromeButton(
+        systemImage: String,
+        help: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TopChromeButtonStyle())
+        .disabled(!isEnabled)
+        .help(help)
+    }
+}
+
+private struct TopChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        BodyView(configuration: configuration)
+    }
+
+    private struct BodyView: View {
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hover = false
+        let configuration: Configuration
+
+        var body: some View {
+            configuration.label
+                .foregroundStyle(Color.primary)
+                .opacity(isEnabled ? (configuration.isPressed ? 0.55 : (hover ? 0.92 : 0.68)) : 0.25)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(hover && isEnabled ? DS.wash2 : .clear)
+                )
+                .scaleEffect(configuration.isPressed ? 0.95 : 1)
+                .onHover { hover = $0 }
+                .animation(DS.ease, value: hover)
+        }
+    }
+}
+
+private struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                window?.performZoom(nil)
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
+    }
+}
+
+/// Compact left navigation sidebar starting cleanly below the traffic lights (no redundant brand header).
 struct CompactSidebar: View {
     @EnvironmentObject var model: AppModel
     @State private var hovered: AppSection?
+    var topInset: CGFloat = 42
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
-                ThinkingOrb(size: 18, active: model.analyses.values.contains { $0.isLoading })
-                Text("ChatMaster")
-                    .font(.system(size: 14, weight: .semibold))
-                    .tracking(-0.2)
-                    .foregroundStyle(Theme.chatTitle)
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 2)
-            .padding(.bottom, 10)
-
             ForEach(Array(AppSection.allCases.enumerated()), id: \.element.id) { index, item in
                 navRow(item, index: index)
             }
@@ -112,10 +316,13 @@ struct CompactSidebar: View {
             Spacer(minLength: 8)
             SyncFooter()
         }
+        .padding(.top, topInset)
         .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.bottom, 8)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(DS.sidebar)
+        .background(DS.sidebar.overlay(alignment: .top) {
+            WindowDragArea().frame(height: topInset)
+        })
     }
 
     private func navRow(_ item: AppSection, index: Int) -> some View {
@@ -123,7 +330,7 @@ struct CompactSidebar: View {
         let hot = hovered == item
         let n = badge(for: item)
         return Button {
-            withAnimation(DS.ease) { model.section = item }
+            withAnimation(DS.ease) { model.navigate(to: item) }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: item.icon)

@@ -20,7 +20,6 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                header
                 kpiStrip
                 volumeCard
                 HStack(alignment: .top, spacing: 10) {
@@ -84,7 +83,7 @@ struct DashboardView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.top, 8)
+            .padding(.top, 12)
             .padding(.bottom, 18)
         }
         .defaultScrollAnchor(.top)
@@ -121,7 +120,7 @@ struct DashboardView: View {
                        tint: DS.ok, note: chatNote)
             MetricTile(title: "我发出占比", value: shareText, icon: "paperplane.fill", tint: Color(muHex: 0x14B8A6))
             Button {
-                withAnimation(DS.ease) { model.section = .pending }
+                withAnimation(DS.ease) { model.navigate(to: .pending) }
             } label: {
                 MetricTile(title: "待回复", value: "\(snap.pendingCount)", icon: "tray.full.fill",
                            tint: snap.pendingCount > 0 ? DS.error : DS.pick,
@@ -181,30 +180,6 @@ struct DashboardView: View {
         HStack(spacing: 5) {
             RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 8, height: 8)
             Text(t).font(DS.micro).foregroundStyle(DS.ink4)
-        }
-    }
-
-    private var header: some View {
-        let hour = Calendar.current.component(.hour, from: Date())
-        let hello = hour < 6 ? "夜深了" : hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好"
-        return HStack(alignment: .center, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(hello)
-                    .font(.system(size: 22, weight: .semibold))
-                    .tracking(-0.4)
-                    .foregroundStyle(Theme.chatTitle)
-                if snap.stats.firstTs > 0 {
-                    Text("始于 \(Fmt.day.string(from: Date(timeIntervalSince1970: TimeInterval(snap.stats.firstTs))))")
-                        .font(DS.sub)
-                        .foregroundStyle(DS.ink4)
-                }
-            }
-            Spacer(minLength: 8)
-            BSegmented(
-                selection: $model.dashboardPeriod,
-                options: AppModel.DashboardPeriod.allCases.map { ($0, $0.title) },
-                compact: true
-            )
         }
     }
 

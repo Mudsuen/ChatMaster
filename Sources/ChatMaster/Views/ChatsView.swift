@@ -52,7 +52,12 @@ struct ChatsView: View {
                     LazyVStack(spacing: 2) {
                         ForEach(chats) { c in
                             ChatListRow(chat: c, watched: model.watchlist.contains(c.username), selected: model.selectedChat == c.username)
-                                .onTapGesture { withAnimation(DS.spring) { model.selectedChat = c.username } }
+                                .onTapGesture {
+                                    withAnimation(DS.spring) {
+                                        model.selectedChat = c.username
+                                        model.recordNavigation()
+                                    }
+                                }
                                 .contextMenu {
                                     Button(model.watchlist.contains(c.username) ? "取消关注" : "关注（新消息自动分析）") {
                                         model.setWatched(c.username, !model.watchlist.contains(c.username))
@@ -197,7 +202,7 @@ struct ChatTranscriptView: View {
             .buttonStyle(IconButtonStyle()).help("关注：新消息自动分析")
             Button {
                 model.insightChat = chat
-                model.section = .insight
+                model.navigate(to: .insight)
             } label: { Label("关系洞察", systemImage: "person.2.wave.2") }
                 .buttonStyle(BButtonStyle(kind: .secondary))
             Button { summarize(force: false) } label: { Label("总结对话", systemImage: "sparkles") }
