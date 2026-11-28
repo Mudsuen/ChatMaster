@@ -19,14 +19,12 @@ struct RootView: View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 if isSidebarVisible {
-                    CompactSidebar(topInset: 42)
+                    CompactSidebar(topInset: 44)
                         .frame(width: 166)
-                        .ignoresSafeArea(.container, edges: .top)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                     Rectangle()
                         .fill(DS.edge)
                         .frame(width: 1)
-                        .ignoresSafeArea(.container, edges: .top)
                 }
 
                 VStack(spacing: 0) {
@@ -70,7 +68,6 @@ struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(DS.bg)
-                .ignoresSafeArea(.container, edges: .top)
             }
 
             TopTrafficChrome(
@@ -81,8 +78,14 @@ struct RootView: View {
                 goForward: { model.goForward() }
             )
         }
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 680, minHeight: 460)
         .background(DS.bg)
+        .onAppear {
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
         .onChange(of: model.inspected) { _, m in
             if m != nil {
                 withAnimation(panelCurve) { showInspector = true }
@@ -220,6 +223,7 @@ private struct TopTrafficChrome: View {
         HStack(spacing: 2) {
             chromeButton(
                 systemImage: "sidebar.left",
+                width: 26,
                 help: isSidebarVisible ? "隐藏侧边栏" : "显示侧边栏",
                 isEnabled: true
             ) {
@@ -227,23 +231,26 @@ private struct TopTrafficChrome: View {
             }
             chromeButton(
                 systemImage: "chevron.left",
+                width: 24,
                 help: "返回 (⌘[)",
                 isEnabled: canGoBack,
                 action: goBack
             )
             chromeButton(
                 systemImage: "chevron.right",
+                width: 24,
                 help: "前进 (⌘])",
                 isEnabled: canGoForward,
                 action: goForward
             )
         }
+        .frame(height: 40)
         .padding(.leading, 76)
-        .padding(.top, 7)
     }
 
     private func chromeButton(
         systemImage: String,
+        width: CGFloat,
         help: String,
         isEnabled: Bool,
         action: @escaping () -> Void
@@ -251,7 +258,7 @@ private struct TopTrafficChrome: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .medium))
-                .frame(width: 26, height: 26)
+                .frame(width: width, height: 26)
                 .contentShape(Rectangle())
         }
         .buttonStyle(TopChromeButtonStyle())

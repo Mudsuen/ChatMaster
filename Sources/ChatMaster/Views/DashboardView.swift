@@ -222,19 +222,21 @@ private struct MetricTile: View {
                         .foregroundStyle(DS.ink4)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
+                    Spacer(minLength: 4)
+                    if let note {
+                        Text(note)
+                            .font(DS.micro)
+                            .foregroundStyle(DS.ink5)
+                            .lineLimit(1)
+                    }
                 }
                 Text(value)
                     .font(.system(size: 23, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Theme.chatTitle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
-                if let note {
-                    Text(note)
-                        .font(DS.micro)
-                        .foregroundStyle(DS.ink5)
-                        .lineLimit(1)
-                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 }
