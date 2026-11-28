@@ -49,7 +49,7 @@ struct RecallsView: View {
         VStack(spacing: 0) {
             PageHeader(title: "防撤回", subtitle: "保留被撤回消息的原文 · 共 \(shown.count) 条") {
                 HStack(spacing: 8) {
-                    FilterField(text: $filter, prompt: "筛选人、群或内容").frame(width: 220)
+                    FilterField(text: $filter, prompt: "筛选人、群或内容").frame(minWidth: 130, maxWidth: 200)
                     BSegmented(selection: $scope, options: [(.others, "别人撤回"), (.all, "全部")])
                 }
             }

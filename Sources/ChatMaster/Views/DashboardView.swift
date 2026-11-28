@@ -18,7 +18,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                     StatTile(title: "今日消息", value: overview.today, icon: "sun.max.fill", tint: DS.warning)
                     StatTile(title: "近 7 天", value: overview.week, icon: "calendar", tint: DS.pick)
                     StatTile(title: "今日活跃会话", value: overview.activeChatsToday, icon: "bubble.left.and.bubble.right.fill", tint: DS.ok)

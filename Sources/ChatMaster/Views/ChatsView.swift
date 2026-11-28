@@ -42,8 +42,8 @@ struct ChatsView: View {
                     }
                 }
             }
-            .padding(12)
-            .frame(width: 290)
+            .padding(10)
+            .frame(width: 232)
             .background(DS.bg)
             Rectangle().fill(DS.edge).frame(width: 1)
             Group {

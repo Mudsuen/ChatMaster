@@ -4,47 +4,67 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
-    @State private var showInspector = true
+    @State private var showInspector = false
+
+    private let panelCurve = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.2)
 
     var body: some View {
         NavigationSplitView {
-            LineSidebar()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 216, max: 260)
+            CompactSidebar()
+                .navigationSplitViewColumnWidth(min: 148, ideal: 162, max: 192)
         } detail: {
-            ZStack(alignment: .bottomTrailing) {
-                Group {
-                    switch model.state {
-                    case .starting:
-                        VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
-                    case .importing(let phase, let frac):
-                        ImportingView(phase: phase, fraction: frac)
-                    case .failed(let msg):
-                        EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
-                    case .ready:
-                        detail.id(model.section)
-                            .transition(.opacity.combined(with: .offset(y: 6)))
+            HStack(spacing: 0) {
+                ZStack(alignment: .bottomTrailing) {
+                    Group {
+                        switch model.state {
+                        case .starting:
+                            VStack(spacing: 14) { ThinkingOrb(size: 40); ShimmerText(text: "正在打开数据…") }
+                        case .importing(let phase, let frac):
+                            ImportingView(phase: phase, fraction: frac)
+                        case .failed(let msg):
+                            EmptyHint(title: "无法读取微信数据", systemImage: "lock.trianglebadge.exclamationmark", detail: msg)
+                        case .ready:
+                            detail.id(model.section)
+                                .transition(.opacity)
+                        }
                     }
+                    .frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
+                    .background(DS.bg)
+                    .animation(DS.ease, value: model.section)
+                    ToastStackView().padding(16)
                 }
-                .frame(minWidth: 560, maxWidth: .infinity, minHeight: 480, maxHeight: .infinity)
-                .background(DS.bg)
-                .animation(DS.ease, value: model.section)
-                ToastStackView().padding(20)
+                .clipped()
+
+                if showInspector {
+                    Rectangle().fill(DS.edge).frame(width: 1)
+                    InspectorView()
+                        .frame(width: 280)
+                        .frame(maxHeight: .infinity)
+                        .background(DS.bg)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
-        }
-        .inspector(isPresented: $showInspector) {
-            InspectorView()
-                .background(DS.bg)
-                .inspectorColumnWidth(min: 320, ideal: 380, max: 500)
+            .frame(minWidth: 520, maxWidth: .infinity, minHeight: 460, maxHeight: .infinity)
+            .clipped()
+            .animation(panelCurve, value: showInspector)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showInspector.toggle() } label: { Label("分析面板", systemImage: "sidebar.trailing") }
-                    .help("显示/隐藏分析面板")
+                Button {
+                    withAnimation(panelCurve) { showInspector.toggle() }
+                } label: {
+                    Label("分析面板", systemImage: "sidebar.trailing")
+                }
+                .help("显示/隐藏分析面板")
             }
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .navigationTitle("")
-        .onChange(of: model.inspected) { _, m in if m != nil { showInspector = true } }
+        .onChange(of: model.inspected) { _, m in
+            if m != nil {
+                withAnimation(panelCurve) { showInspector = true }
+            }
+        }
     }
 
     @ViewBuilder private var detail: some View {
@@ -61,21 +81,85 @@ struct RootView: View {
     }
 }
 
-/// Navigation as a column of lines that extend toward the hovered / current item.
-struct LineSidebar: View {
+/// Compact left navigation sidebar with subtle hover and selection background highlights.
+struct CompactSidebar: View {
     @EnvironmentObject var model: AppModel
+    @State private var hovered: AppSection?
 
     var body: some View {
-        MULineNav(
-            items: AppSection.allCases.map {
-                MULineNavItem(id: $0, title: $0.title, systemImage: $0.icon, badge: badge(for: $0))
-            },
-            selection: $model.section
-        ) {
-            MUBrandHeader(title: "ChatMaster", active: model.analyses.values.contains { $0.isLoading })
-        } footer: {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                ThinkingOrb(size: 18, active: model.analyses.values.contains { $0.isLoading })
+                Text("ChatMaster")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(-0.2)
+                    .foregroundStyle(Theme.chatTitle)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 2)
+            .padding(.bottom, 10)
+
+            ForEach(Array(AppSection.allCases.enumerated()), id: \.element.id) { index, item in
+                navRow(item, index: index)
+            }
+
+            Spacer(minLength: 8)
             SyncFooter()
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(DS.sidebar)
+    }
+
+    private func navRow(_ item: AppSection, index: Int) -> some View {
+        let on = model.section == item
+        let hot = hovered == item
+        let n = badge(for: item)
+        return Button {
+            withAnimation(DS.ease) { model.section = item }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(on ? DS.ink : DS.ink4)
+                    .frame(width: 16)
+                Text(item.title)
+                    .font(.system(size: 13, weight: on ? .semibold : .regular))
+                    .foregroundStyle(on ? Theme.chatTitle : DS.ink3)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if n > 0 {
+                    Text(n > 99 ? "99+" : "\(n)")
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(on ? DS.onSlab : DS.ink3)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(on ? DS.slab : DS.wash2, in: Capsule())
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 29)
+            .background {
+                if on {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DS.card)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(DS.edge, lineWidth: 0.75)
+                        )
+                } else if hot {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DS.wash)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(index < 9 ? KeyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command) : nil)
+        .onHover { hovered = $0 ? item : (hovered == item ? nil : hovered) }
+        .animation(DS.ease, value: hot)
     }
 
     private func badge(for s: AppSection) -> Int {
@@ -107,20 +191,22 @@ struct SyncFooter: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 7) {
-                PulseDot(color: model.syncErrors.isEmpty ? DS.ok : DS.warning)
-                Text(model.syncErrors.isEmpty ? "实时同步中" : "同步有错误").font(.system(size: 12, weight: .medium)).foregroundStyle(DS.ink2)
-                Spacer()
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                PulseDot(color: model.syncErrors.isEmpty ? DS.ok : DS.warning, size: 5)
+                Text(model.syncErrors.isEmpty ? "同步中" : "同步异常")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(DS.ink2)
+                Spacer(minLength: 4)
                 Button { model.syncNow() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(IconButtonStyle(size: 22)).help("立即同步（⌘R）")
+                    .buttonStyle(IconButtonStyle(size: 20))
+                    .help("立即同步（⌘R）")
             }
             if let t = model.lastSync {
-                HStack(spacing: 0) {
-                    RollingNumber(value: model.totalIndexed, font: DS.micro.monospacedDigit(), format: { "\($0)" })
-                    Text(" 条 · \(Fmt.time.string(from: t))").font(DS.micro.monospacedDigit())
-                }
-                .foregroundStyle(DS.ink5)
+                Text("\(Fmt.count(model.totalIndexed)) 条 · \(Fmt.time.string(from: t))")
+                    .font(.system(size: 10.5).monospacedDigit())
+                    .foregroundStyle(DS.ink5)
+                    .lineLimit(1)
             }
             if !model.missingKeys.isEmpty {
                 Text("缺少密钥：\(model.missingKeys.joined(separator: ", "))")
@@ -131,9 +217,10 @@ struct SyncFooter: View {
                 Text(e).font(DS.micro).foregroundStyle(DS.warning).lineLimit(2).help(e)
             }
         }
-        .padding(12)
-        .background(DS.card, in: RoundedRectangle(cornerRadius: DS.innerRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: DS.innerRadius, style: .continuous).strokeBorder(DS.edge, lineWidth: 1))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(DS.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DS.edge, lineWidth: 1))
     }
 }
 
@@ -167,15 +254,15 @@ struct InspectorView: View {
                     .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(m.isSelf ? .clear : DS.edge, lineWidth: 1))
                     Card { MessageAnalysisSlot(message: m) }
                 }
-                .padding(16)
+                .padding(14)
                 .id(m.id)
-                .transition(.opacity.combined(with: .offset(x: 12)))
+                .transition(.opacity)
             } else {
                 EmptyHint(title: "选择一条消息", systemImage: "sparkles",
                           detail: "在任意列表里点 ✦ 或右键消息，分析结果会显示在这里。")
                     .padding(.top, 80)
             }
         }
-        .animation(DS.spring, value: model.inspected?.id)
+        .animation(DS.ease, value: model.inspected?.id)
     }
 }

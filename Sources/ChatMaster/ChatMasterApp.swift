@@ -15,7 +15,7 @@ struct ChatMasterApp: App {
                 .environmentObject(model)
                 .background(OpenWindowCapture())
         }
-        .defaultSize(width: 1320, height: 840)
+        .defaultSize(width: 1120, height: 740)
         .commands {
             CommandGroup(after: .toolbar) {
                 Button("立即同步") { model.syncNow() }.keyboardShortcut("r", modifiers: .command)

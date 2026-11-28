@@ -90,8 +90,8 @@ struct InsightView: View {
                     }
                 }
             }
-            .padding(12)
-            .frame(width: 250)
+            .padding(10)
+            .frame(width: 204)
             Rectangle().fill(DS.edge).frame(width: 1)
             Group {
                 if let chat, let stats {
@@ -133,7 +133,7 @@ struct InsightView: View {
                     AvatarStack(items: s.topSenders.map(\.chat)) { AvatarView(username: $0, size: 26) }
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 10)], spacing: 10) {
                 StatTile(title: "总消息", value: s.total, icon: "text.bubble.fill", tint: DS.pick)
                 StatTile(title: "我 : 对方", text: s.total > 0 ? "\(Int(Double(s.mine) / Double(s.total) * 100)) : \(100 - Int(Double(s.mine) / Double(s.total) * 100))" : "—",
                          icon: "arrow.left.arrow.right", tint: DS.ink)
